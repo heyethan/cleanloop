@@ -1,69 +1,140 @@
-import Image from "next/image";
+"use client";
+
+/**
+ * CleanLoop main screen — map + report button + leaderboard.
+ *
+ * Importers/callers: Next.js App Router renders this at "/".
+ * Affected API: none exported; composes MapView, ReportSheet, ResolveSheet, Leaderboard.
+ * Data schemas: holds Report[] in state (created_at ISO-8601), mutated optimistically
+ * after a report or resolution.
+ * User instruction, verbatim: "just proceed with building, we'll handle the API part later"
+ *
+ * MapView is loaded with ssr:false because Leaflet touches window at import time.
+ */
+
+import dynamic from "next/dynamic";
+import { useState } from "react";
+import { useReports, filterReports } from "@/lib/useReports";
+import ReportSheet from "@/components/ReportSheet";
+import ResolveSheet from "@/components/ResolveSheet";
+import Leaderboard from "@/components/Leaderboard";
+import { WARDS } from "@/lib/wards";
+import type { Report, ReportStatus } from "@/lib/types";
+
+const MapView = dynamic(() => import("@/components/MapView"), {
+  ssr: false,
+  loading: () => <div className="h-full w-full animate-pulse bg-neutral-100" />,
+});
 
 export default function Home() {
+  const { reports, counts, error, setReports } = useReports();
+  const [reporting, setReporting] = useState(false);
+  const [selected, setSelected] = useState<Report | null>(null);
+  const [showBoard, setShowBoard] = useState(false);
+  const [ward, setWard] = useState<string | null>(null);
+  const [status, setStatus] = useState<ReportStatus | null>(null);
+
+  const visible = filterReports(reports, { ward, status });
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <main className="relative h-dvh w-full overflow-hidden">
+      <div className="absolute inset-0">
+        <MapView reports={visible} onSelect={(r) => setSelected(r)} />
+      </div>
+
+      {/* Header */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-[500] p-3">
+        <div className="pointer-events-auto mx-auto max-w-md rounded-xl bg-white/95 p-3 shadow-lg backdrop-blur">
+          <div className="flex items-baseline justify-between">
+            <h1 className="text-base font-semibold">CleanLoop</h1>
+            <button
+              onClick={() => setShowBoard(true)}
+              className="text-xs font-medium text-blue-600"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+              Leaderboard
+            </button>
+          </div>
+          <p className="mt-0.5 text-xs text-neutral-500">
+            Report a dump. AI verifies the cleanup before the case closes.
           </p>
+
+          <div className="mt-2 flex gap-3 text-xs">
+            <Legend colour="#dc2626" label={`Open ${counts.open}`} />
+            <Legend colour="#eab308" label={`Claimed ${counts.claimed}`} />
+            <Legend colour="#16a34a" label={`Verified ${counts.verified}`} />
+          </div>
+
+          <div className="mt-2 flex gap-2">
+            <select
+              value={ward ?? ""}
+              onChange={(e) => setWard(e.target.value || null)}
+              className="w-1/2 rounded border px-2 py-1 text-xs"
+            >
+              <option value="">All wards</option>
+              {WARDS.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={status ?? ""}
+              onChange={(e) => setStatus((e.target.value || null) as ReportStatus | null)}
+              className="w-1/2 rounded border px-2 py-1 text-xs"
+            >
+              <option value="">All statuses</option>
+              <option value="open">Open</option>
+              <option value="claimed">Claimed, unverified</option>
+              <option value="verified_resolved">Verified clean</option>
+            </select>
+          </div>
+
+          {error && <div className="mt-2 text-xs text-red-600">{error}</div>}
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+      </div>
+
+      {/* Primary action */}
+      <div className="absolute inset-x-0 bottom-0 z-[500] p-4">
+        <button
+          onClick={() => setReporting(true)}
+          className="mx-auto block w-full max-w-md rounded-xl bg-neutral-900 py-3.5 font-medium text-white shadow-lg"
+        >
+          Report a dump spot
+        </button>
+      </div>
+
+      {reporting && (
+        <ReportSheet
+          onClose={() => setReporting(false)}
+          onReported={(r) => setReports((prev) => [r, ...prev])}
+        />
+      )}
+
+      {selected && (
+        <ResolveSheet
+          report={selected}
+          onClose={() => setSelected(null)}
+          onResolved={(id, newStatus) =>
+            setReports((prev) =>
+              prev.map((r) => (r.id === id ? { ...r, status: newStatus } : r)),
+            )
+          }
+        />
+      )}
+
+      {showBoard && <Leaderboard onClose={() => setShowBoard(false)} />}
+    </main>
+  );
+}
+
+function Legend({ colour, label }: { colour: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1">
+      <span
+        className="inline-block h-2.5 w-2.5 rounded-full"
+        style={{ backgroundColor: colour }}
+      />
+      {label}
+    </span>
   );
 }
