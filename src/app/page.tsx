@@ -28,6 +28,7 @@ import ReportSheet from "@/components/ReportSheet";
 import ResolveSheet from "@/components/ResolveSheet";
 import Leaderboard from "@/components/Leaderboard";
 import ListView, { type SortMode } from "@/components/ListView";
+import Island, { IslandCollapse } from "@/components/Island";
 import { WARDS } from "@/lib/wards";
 import { useLang } from "@/lib/i18n";
 import type { MapHandle, MapMode } from "@/components/Map3D";
@@ -69,6 +70,14 @@ export default function Home() {
   const [view, setView] = useState<View>("map");
   const [mapMode, setMapMode] = useState<MapMode>("3d");
   const [sort, setSort] = useState<SortMode>("severity");
+  /*
+   * Collapsed by default on phones — the island exists because the old fixed card ate a
+   * third of the map on a 6.1" screen. On a wide screen there is room to keep it open.
+   */
+  const [islandOpen, setIslandOpen] = useState(false);
+  useEffect(() => {
+    setIslandOpen(window.matchMedia("(min-width: 640px)").matches);
+  }, []);
   const mapRef = useRef<MapHandle>(null);
 
   /*
@@ -97,6 +106,9 @@ export default function Home() {
 
   const handleSelect = useCallback((r: Report) => {
     setSelected(r);
+    // Collapse the island as a sheet takes over: two glass layers stacked on each other
+    // is exactly the "light material on light material" the HIG warns about.
+    setIslandOpen(false);
     mapRef.current?.flyToReport(r);
   }, []);
 
@@ -131,8 +143,13 @@ export default function Home() {
 
       {/* ---------------------------------------------------------------- header */}
       <header className="pointer-events-none absolute inset-x-0 top-0 z-20 px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
-        <div className="pointer-events-auto mx-auto w-full max-w-md rounded-[1.75rem] border border-white/10 bg-white/[0.06] p-1.5 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.9)] backdrop-blur-2xl">
-          <div className="rounded-[calc(1.75rem-0.375rem)] bg-black/40 p-4 shadow-[inset_0_1px_1px_rgba(255,255,255,0.08)]">
+        <Island
+          open={islandOpen}
+          onToggle={() => setIslandOpen((v) => !v)}
+          collapsedMetric={String(stats?.verified ?? "—")}
+          collapsedLabel={t("verified_clean")}
+          expanded={
+            <>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-[10px] uppercase tracking-[0.28em] text-white/55">
@@ -161,6 +178,10 @@ export default function Home() {
                     ↗
                   </span>
                 </button>
+                <IslandCollapse
+                  onClick={() => setIslandOpen(false)}
+                  label="Collapse panel"
+                />
               </div>
             </div>
 
@@ -297,8 +318,9 @@ export default function Home() {
             </div>
 
             {error && <div className="mt-2 text-[11px] text-red-400">{error}</div>}
-          </div>
-        </div>
+            </>
+          }
+        />
       </header>
 
       {/* ------------------------------------------------------------ bottom CTA */}
