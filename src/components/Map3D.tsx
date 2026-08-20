@@ -11,12 +11,17 @@
  * User instruction, verbatim: "can we make it 3d location using either (or all)
  * motion.dev/three.js/animation.js/gsap"
  *
- * WHY PILLARS AND NOT 3D BUILDINGS:
- * A "3D city" needs building heights. An Overpass query over Koramangala returned
- * 2,426 buildings with only 22 carrying height/levels data — 0.9%. Extruding OSM
- * buildings in Bengaluru yields a flat grey plane, so the 3D here is driven by the
- * data we actually have: each report becomes a pillar whose HEIGHT is severity and
- * whose COLOUR is status. The city of the problem, not a city of fake boxes.
+ * TWO LAYERS OF 3D:
+ *
+ * 1. Buildings — the Liberty style already ships a `building-3d` fill-extrusion layer
+ *    (minzoom 14) driven by OpenMapTiles' `render_height`. Those heights are
+ *    APPROXIMATIONS derived from levels/height tags with fallbacks, not survey data.
+ *    (Raw OSM only tags ~0.9% of Bengaluru buildings with a height — 22 of 2,426 in a
+ *    Koramangala sample — so the vector tiles are doing the approximating, not us.)
+ *
+ * 2. Report pillars — the actual data story, and the differentiator. Each report is
+ *    extruded with HEIGHT = severity and COLOUR = status, drawn above the buildings so
+ *    a severe open dump is unmistakable from across the city.
  */
 
 import { useEffect, useImperativeHandle, useRef, useState, forwardRef } from "react";
@@ -25,14 +30,45 @@ import {
   Map as MLMap,
   AttributionControl,
   NavigationControl,
+  setWorkerUrl,
   type GeoJSONSource,
 } from "maplibre-gl";
 import type { Report, ReportStatus } from "@/lib/types";
+
+/**
+ * REQUIRED, and the reason this map was blank for its entire first life.
+ *
+ * MapLibre v6 is ESM-only and loads its worker as a real URL. Turbopack does not emit
+ * that worker, so it never spawns: no tiles are ever requested, `isStyleLoaded()` never
+ * turns true, the `load` event never fires, and the map paints the style's default
+ * background and nothing else — with no console error at all (maplibre-gl-js#8024).
+ *
+ * scripts/copy-maplibre-worker.mjs puts the worker (and the shared chunk it imports by
+ * relative path) in public/maplibre/ via the predev/prebuild hooks. Self-hosted rather
+ * than a CDN so the demo has no extra external dependency on venue wifi.
+ *
+ * Module scope on purpose: this must run before any `new MLMap(...)`.
+ */
+setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
 /** Keyless vector tiles — verified reachable, no API key, no signup friction. */
 const STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 
 const BENGALURU: [number, number] = [77.5946, 12.9716];
+
+/**
+ * This is a Bengaluru product, so the map is locked to Bengaluru. Panning off to the
+ * Atlantic is not a feature — it just lets a demo get lost and loads tiles nobody needs.
+ * Slightly padded around the city so the edges don't feel walled-in.
+ * [[west, south], [east, north]]
+ */
+const BENGALURU_BOUNDS: [[number, number], [number, number]] = [
+  [77.35, 12.75],
+  [77.9, 13.2],
+];
+
+/** Below this the city stops filling the frame and you're looking at empty state. */
+const MIN_ZOOM = 10;
 
 export const STATUS_COLOUR: Record<ReportStatus, string> = {
   open: "#ff3b30",
@@ -164,6 +200,8 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
         zoom: 11.4,
         pitch: 50,
         bearing: -18,
+        maxBounds: BENGALURU_BOUNDS,
+        minZoom: MIN_ZOOM,
         attributionControl: false,
       });
     } catch {
@@ -171,6 +209,20 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
       return;
     }
     map.current = m;
+
+    /*
+     * MapLibre swallows some failures (notably worker load errors — see
+     * maplibre-gl-js#8024), which is exactly how this map shipped blank once. Surface
+     * them rather than letting the map fail silently again.
+     */
+    m.on("error", (e) => {
+      console.error("[maplibre]", (e as unknown as { error?: Error }).error ?? e);
+    });
+
+    // Dev-only inspection handle for browser QA. Never present in a production bundle.
+    if (process.env.NODE_ENV !== "production") {
+      (window as unknown as { __map?: MLMap }).__map = m;
+    }
 
     m.addControl(
       new AttributionControl({ compact: true }),
@@ -187,6 +239,13 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
         try {
           if (layer.type === "background") {
             m.setPaintProperty(layer.id, "background-color", "#0a0d12");
+          } else if (layer.type === "fill-extrusion") {
+            // Liberty ships a `building-3d` extrusion layer (minzoom 14) driven by
+            // OpenMapTiles' render_height. It defaults to a light cream, which reads as
+            // white blocks on a dark map — darken it so buildings become city mass and
+            // the report pillars stay the brightest thing on screen.
+            m.setPaintProperty(layer.id, "fill-extrusion-color", "#161c26");
+            m.setPaintProperty(layer.id, "fill-extrusion-opacity", 0.9);
           } else if (layer.type === "fill" && /water/.test(layer.id)) {
             m.setPaintProperty(layer.id, "fill-color", "#0d1622");
           } else if (

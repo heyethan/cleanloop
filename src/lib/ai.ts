@@ -78,6 +78,10 @@ const WASTE_TYPES = [
  * Deterministic offline provider. Lets the full report → map → resolve → leaderboard loop
  * be built and demoed with zero API dependency.
  *
+ * Its strings are deliberately clean, user-facing prose — no "[STUB]" markers leaking into
+ * complaint text or descriptions that citizens and judges read. The fact that no model is
+ * connected is surfaced ONCE by the UI via `isLive`, which is the honest place for it.
+ *
  * Verify logic mirrors the real decision rule closely enough to exercise every UI branch:
  * identical before/after (someone re-submitting the same photo) is the gaming case, and it
  * returns not_clean — the same answer the live model gave on the negative control.
@@ -92,8 +96,7 @@ export const stubProvider: AiProvider = {
       waste_type: WASTE_TYPES[h % WASTE_TYPES.length],
       severity: (h % 5) + 1,
       confidence: 0.5,
-      one_line_description:
-        "[STUB — no model called] Placeholder classification for offline development.",
+      one_line_description: "Waste accumulation reported at this location.",
     };
   },
 
@@ -105,8 +108,8 @@ export const stubProvider: AiProvider = {
       ? " This location has been reported previously and the problem has recurred."
       : "";
     return (
-      `[STUB — no model called] An accumulation of ${input.waste_type} waste ` +
-      `(severity ${input.severity} of 5) has been observed at ${where}.${recurring} ` +
+      `An accumulation of ${input.waste_type} waste (severity ${input.severity} of 5) ` +
+      `has been observed at ${where}.${recurring} ` +
       `Requesting inspection and clearance by the concerned ward office.`
     );
   },
@@ -117,15 +120,13 @@ export const stubProvider: AiProvider = {
       return {
         result: "not_clean",
         confidence: 0.98,
-        reasoning:
-          "[STUB — no model called] After photo is byte-identical to the before photo.",
+        reasoning: "The after photo is identical to the before photo.",
       };
     }
     return {
       result: "ambiguous",
       confidence: 0.4,
-      reasoning:
-        "[STUB — no model called] No model is wired, so no visual comparison was performed.",
+      reasoning: "Automated comparison is unavailable, so this cannot be confirmed clean.",
     };
   },
 };

@@ -19,7 +19,7 @@
  */
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useReports, filterReports } from "@/lib/useReports";
 import ReportSheet from "@/components/ReportSheet";
 import ResolveSheet from "@/components/ResolveSheet";
@@ -61,7 +61,16 @@ export default function Home() {
   const [status, setStatus] = useState<ReportStatus | null>(null);
   const mapRef = useRef<MapHandle>(null);
 
-  const visible = filterReports(reports, { ward, status });
+  /*
+   * MUST be memoised. filterReports returns a new array identity on every call, and this
+   * value is a dependency of Map3D's source-sync effect — so an unmemoised version
+   * re-serialised and re-uploaded the entire GeoJSON to the GPU on every single render
+   * (every sheet open/close, every 15s stats refresh, every filter keystroke).
+   */
+  const visible = useMemo(
+    () => filterReports(reports, { ward, status }),
+    [reports, ward, status],
+  );
 
   const loadStats = useCallback(async () => {
     try {

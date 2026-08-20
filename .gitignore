@@ -40,3 +40,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .gstack/
+
+# MapLibre worker, copied from node_modules by scripts/copy-maplibre-worker.mjs
+public/maplibre/
+
+# Local browser-QA screenshots, not part of the product
+.qa/

@@ -9,11 +9,10 @@
  * GET /api/reports.
  * User instruction, verbatim: "just proceed with building, we'll handle the API part later"
  *
- * WHY THIS FILE EXISTS: MapView imports react-leaflet, which touches `window` at module
- * scope. page.tsx loads MapView via next/dynamic ssr:false — but a *static* import of any
- * other symbol from that same module still pulls Leaflet into the server bundle and the
- * prerender dies with "window is not defined". Keeping this hook in its own Leaflet-free
- * module is what makes the dynamic import actually work.
+ * WHY THIS FILE EXISTS: it stays out of Map3D.tsx because anything page.tsx
+ * imports statically from that module pulls maplibre-gl into the server bundle,
+ * and maplibre touches `window` at module scope — which breaks the prerender
+ * despite the dynamic ssr:false import.
  */
 
 import { useEffect, useMemo, useState } from "react";
