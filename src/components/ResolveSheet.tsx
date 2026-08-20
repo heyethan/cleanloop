@@ -7,16 +7,28 @@
  * Affected API: exports ResolveSheet (default);
  * POSTs multipart/form-data to /api/reports/[id]/resolve.
  * Data schemas: sends photo (File), session_id; receives {verification, status,
- * is_self_resolved, ai_is_live} plus the Resolution row (submitted_at/verified_at ISO-8601).
- * User instruction, verbatim: "just proceed with building, we'll handle the API part later"
+ * is_self_resolved, ai_is_live} plus the Resolution row (ISO-8601 timestamps).
+ * User instruction, verbatim: "also improve the ui/ux of the website"
  *
- * The three outcomes are shown honestly and differently. A yellow "claimed, unverified"
- * is not dressed up as success — that distinction is the entire product argument.
+ * UX applied:
+ *  - FRAMING: a non-green outcome is "Held for review", never "failed". The
+ *    integrity of refusing to close on an unverified claim IS the product.
+ *  - PEAK-END: the green verdict is the emotional peak of the whole product, so it
+ *    gets the largest, brightest, most animated treatment in the app.
+ *  - AUTHORITY/TRANSPARENCY: the model's own reasoning is shown verbatim.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { getSessionId } from "@/lib/session";
+import Sheet from "@/components/Sheet";
 import type { Report, ReportStatus, Verification } from "@/lib/types";
+
+const WORK_STEPS = [
+  "Uploading after photo",
+  "Re-reading the original report",
+  "Comparing before and after",
+  "Checking it's the same location",
+];
 
 export default function ResolveSheet({
   report,
@@ -28,18 +40,34 @@ export default function ResolveSheet({
   onResolved: (id: string, status: ReportStatus) => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [step, setStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [verification, setVerification] = useState<Verification | null>(null);
   const [status, setStatus] = useState<ReportStatus | null>(null);
   const [selfResolved, setSelfResolved] = useState(false);
   const [aiIsLive, setAiIsLive] = useState(true);
 
+  useEffect(() => {
+    if (!busy) return;
+    setStep(0);
+    const t = setInterval(
+      () => setStep((s) => Math.min(s + 1, WORK_STEPS.length - 1)),
+      1500,
+    );
+    return () => clearInterval(t);
+  }, [busy]);
+
+  useEffect(() => {
+    if (!file) return setPreview(null);
+    const url = URL.createObjectURL(file);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
   async function submit() {
-    if (!file) {
-      setError("Choose an after photo first.");
-      return;
-    }
+    if (!file) return;
     setBusy(true);
     setError(null);
     try {
@@ -65,111 +93,197 @@ export default function ResolveSheet({
     }
   }
 
-  const verdictStyle =
-    status === "verified_resolved"
-      ? "bg-green-50 text-green-900"
-      : "bg-amber-50 text-amber-900";
+  const isGreen = status === "verified_resolved";
+  const alreadyDone = report.status === "verified_resolved";
 
   return (
-    <div className="fixed inset-0 z-[1000] flex items-end justify-center bg-black/40 sm:items-center">
-      <div className="max-h-[90vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 sm:max-w-md sm:rounded-2xl">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Verify cleanup</h2>
-          <button onClick={onClose} className="text-2xl leading-none text-neutral-400">
-            ×
-          </button>
-        </div>
-
-        <div className="mt-3 space-y-1 text-sm text-neutral-600">
-          <div className="capitalize">
-            {report.waste_type} waste · severity {report.severity}/5
+    <Sheet
+      eyebrow={verification ? "Verification result" : "Close the loop"}
+      title={verification ? (isGreen ? "Verified clean" : "Held for review") : "Verify cleanup"}
+      onClose={onClose}
+    >
+      <div className="space-y-4">
+        {/* --- the original report --- */}
+        <div className="overflow-hidden rounded-2xl border border-white/10">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={report.photo_before_url}
+            alt="Before"
+            className="h-40 w-full object-cover"
+          />
+          <div className="flex items-center justify-between bg-white/[0.04] px-3.5 py-2.5">
+            <span className="text-xs capitalize text-white/80">
+              {report.waste_type} · severity {report.severity}/5
+            </span>
+            <span className="text-[10px] uppercase tracking-[0.2em] text-white/55">
+              Before
+            </span>
           </div>
-          {report.ai_description && (
-            <div className="text-xs text-neutral-500">{report.ai_description}</div>
-          )}
         </div>
 
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={report.photo_before_url}
-          alt="Before"
-          className="mt-3 h-40 w-full rounded-lg object-cover"
-        />
-        <div className="mt-1 text-xs text-neutral-500">Before</div>
+        {report.ai_description && (
+          <p className="text-[11px] leading-relaxed text-white/60">
+            {report.ai_description}
+          </p>
+        )}
 
         {verification ? (
-          <div className="mt-4 space-y-3">
-            <div className={`rounded-lg p-3 text-sm ${verdictStyle}`}>
-              <div className="font-semibold">
-                {status === "verified_resolved"
-                  ? "Verified clean — pin is now green"
-                  : "Claimed, unverified — pin stays open"}
+          <>
+            {/* PEAK MOMENT */}
+            <div
+              className={`rounded-2xl border p-4 ${
+                isGreen
+                  ? "border-[#22c98a]/30 bg-[#22c98a]/10"
+                  : "border-[#ffb020]/30 bg-[#ffb020]/10"
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span
+                  className={`flex h-8 w-8 items-center justify-center rounded-full text-sm ${
+                    isGreen ? "bg-[#22c98a] text-black" : "bg-[#ffb020] text-black"
+                  }`}
+                >
+                  {isGreen ? "✓" : "!"}
+                </span>
+                <div
+                  className={`text-sm font-semibold ${
+                    isGreen ? "text-[#7df0c0]" : "text-[#ffd591]"
+                  }`}
+                >
+                  {isGreen ? "Pin is now green" : "Case stays open"}
+                </div>
               </div>
-              <div className="mt-1 text-xs">
-                AI result: {verification.result} · confidence{" "}
-                {(verification.confidence * 100).toFixed(0)}%
+
+              <div className="mt-3 flex items-center gap-3 text-[11px]">
+                <span className="rounded-full bg-black/30 px-2 py-1 font-mono text-white/70">
+                  {verification.result}
+                </span>
+                <span className="text-white/50">
+                  {(verification.confidence * 100).toFixed(0)}% confidence
+                </span>
               </div>
-              <div className="mt-1 text-xs">{verification.reasoning}</div>
+
+              <p className="mt-2.5 text-[11px] leading-relaxed text-white/60">
+                {verification.reasoning}
+              </p>
             </div>
 
-            {status !== "verified_resolved" && (
-              <p className="text-xs text-neutral-600">
-                The model was not confident enough to close this. It stays open for a
-                human moderator or a second after photo — CleanLoop does not close a case
-                on an unverified claim.
+            {!isGreen && (
+              <p className="text-[11px] leading-relaxed text-white/50">
+                The model wasn&apos;t confident enough to close this. That&apos;s
+                deliberate — CleanLoop never closes a case on an unverified claim. It
+                stays open for a moderator or a second after-photo.
               </p>
             )}
 
             {selfResolved && (
-              <div className="rounded-lg bg-neutral-100 p-2 text-xs text-neutral-700">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-[11px] text-white/60">
                 Flagged: resolved by the same session that reported it.
               </div>
             )}
 
             {!aiIsLive && (
-              <div className="rounded-lg bg-amber-50 p-2 text-xs text-amber-900">
+              <Notice>
                 No AI model is wired yet — this verdict is a placeholder, not a real
                 visual comparison.
-              </div>
+              </Notice>
             )}
 
             <button
               onClick={onClose}
-              className="w-full rounded-lg bg-neutral-900 py-2.5 text-white"
+              className="w-full rounded-full bg-white py-3.5 text-[15px] font-semibold text-black transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.975]"
             >
               Done
             </button>
+          </>
+        ) : alreadyDone ? (
+          <div className="rounded-2xl border border-[#22c98a]/25 bg-[#22c98a]/10 p-4 text-sm text-[#7df0c0]">
+            This spot is already verified clean.
           </div>
         ) : (
-          <div className="mt-4 space-y-4">
-            <div>
-              <label className="mb-1 block text-sm font-medium">After photo</label>
+          <>
+            <label className="block cursor-pointer">
               <input
                 type="file"
                 accept="image/*"
                 capture="environment"
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                className="block w-full cursor-pointer rounded-lg border border-dashed border-neutral-300 p-3 text-sm text-neutral-600 file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-neutral-900 file:px-3 file:py-1.5 file:text-sm file:text-white"
+                className="sr-only"
               />
-              {file && (
-                <p className="mt-1 truncate text-xs text-neutral-500">{file.name}</p>
+              {preview ? (
+                <div className="relative overflow-hidden rounded-2xl border border-white/10">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={preview} alt="After" className="h-40 w-full object-cover" />
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-3 py-2 text-[11px] text-white/80">
+                    After · tap to change
+                  </div>
+                </div>
+              ) : (
+                <div className="flex h-28 flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-white/15 bg-white/[0.03]">
+                  <span className="text-lg">📷</span>
+                  <span className="text-sm text-white/70">Add the after photo</span>
+                </div>
               )}
-            </div>
+            </label>
 
-            {error && (
-              <div className="rounded-lg bg-red-50 p-2 text-xs text-red-800">{error}</div>
+            {busy && (
+              <div className="space-y-2 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                {WORK_STEPS.map((s, i) => (
+                  <div
+                    key={s}
+                    className={`flex items-center gap-2.5 text-xs transition-opacity duration-500 ${
+                      i <= step ? "opacity-100" : "opacity-30"
+                    }`}
+                  >
+                    <span
+                      className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] ${
+                        i < step
+                          ? "bg-[#22c98a] text-black"
+                          : i === step
+                            ? "animate-pulse bg-white/80 text-black"
+                            : "bg-white/10 text-white/55"
+                      }`}
+                    >
+                      {i < step ? "✓" : i + 1}
+                    </span>
+                    <span className={i <= step ? "text-white/85" : "text-white/55"}>
+                      {s}
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
+
+            {error && <Notice tone="red">{error}</Notice>}
 
             <button
               onClick={submit}
               disabled={busy || !file}
-              className="w-full rounded-lg bg-neutral-900 py-2.5 text-white disabled:opacity-40"
+              className="w-full rounded-full bg-white py-3.5 text-[15px] font-semibold text-black transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.975] disabled:bg-white/25 disabled:text-white/50"
             >
-              {busy ? "Comparing before and after…" : "Submit for verification"}
+              {busy ? "Comparing…" : "Submit for verification"}
             </button>
-          </div>
+          </>
         )}
       </div>
+    </Sheet>
+  );
+}
+
+function Notice({
+  tone = "amber",
+  children,
+}: {
+  tone?: "amber" | "red";
+  children: React.ReactNode;
+}) {
+  const cls =
+    tone === "amber"
+      ? "border-amber-400/25 bg-amber-400/10 text-amber-200"
+      : "border-red-400/25 bg-red-400/10 text-red-200";
+  return (
+    <div className={`rounded-2xl border p-3 text-[11px] leading-relaxed ${cls}`}>
+      {children}
     </div>
   );
 }
