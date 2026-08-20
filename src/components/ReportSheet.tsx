@@ -21,6 +21,7 @@
 import { useEffect, useState } from "react";
 import { getSessionId } from "@/lib/session";
 import Sheet from "@/components/Sheet";
+import { translate, type Lang } from "@/lib/i18n";
 import type { Report } from "@/lib/types";
 
 type Stage = "idle" | "locating" | "uploading" | "done" | "error";
@@ -35,12 +36,15 @@ const WORK_STEPS = [
 ];
 
 export default function ReportSheet({
+  lang,
   onClose,
   onReported,
 }: {
+  lang: Lang;
   onClose: () => void;
   onReported: (r: Report) => void;
 }) {
+  const t = (k: string, v?: Record<string, string | number>) => translate(lang, k, v);
   const [stage, setStage] = useState<Stage>("idle");
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -123,8 +127,8 @@ export default function ReportSheet({
 
   return (
     <Sheet
-      eyebrow={stage === "done" ? "Reported" : "New report"}
-      title={stage === "done" ? "On the map" : "Report a dump spot"}
+      eyebrow={stage === "done" ? t("reported") : t("new_report")}
+      title={stage === "done" ? t("on_the_map") : t("report_cta")}
       onClose={onClose}
     >
       {stage === "done" && result ? (
@@ -147,11 +151,11 @@ export default function ReportSheet({
           )}
 
           <dl className="overflow-hidden rounded-2xl border border-white/10">
-            <Row label="Waste type" value={result.waste_type} capitalize />
-            <Row label="Severity" value={`${result.severity} / 5`} />
+            <Row label={t("waste_type")} value={result.waste_type} capitalize />
+            <Row label={t("severity_label")} value={`${result.severity} / 5`} />
             <Row
-              label="History"
-              value={wasRecurring ? "Recurring spot" : "First report here"}
+              label={t("history")}
+              value={wasRecurring ? t("recurring_spot") : t("first_report")}
               accent={wasRecurring}
             />
           </dl>
@@ -177,14 +181,14 @@ export default function ReportSheet({
             onClick={onClose}
             className="w-full rounded-full bg-white py-3.5 text-[15px] font-semibold text-black transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.975]"
           >
-            Done
+            {t("done")}
           </button>
         </div>
       ) : (
         <div className="space-y-5">
           {/* --- step 1: photo --- */}
           <div>
-            <StepLabel n={1} label="Photo" done={Boolean(file)} />
+            <StepLabel n={1} label={t("photo")} done={Boolean(file)} />
             <label className="mt-2 block cursor-pointer">
               <input
                 type="file"
@@ -204,8 +208,8 @@ export default function ReportSheet({
               ) : (
                 <div className="flex h-32 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-white/15 bg-white/[0.03] text-center">
                   <span className="text-xl">📷</span>
-                  <span className="text-sm text-white/70">Take or choose a photo</span>
-                  <span className="text-[11px] text-white/55">Camera opens directly</span>
+                  <span className="text-sm text-white/70">{t("take_photo")}</span>
+                  <span className="text-[11px] text-white/55">{t("camera_opens")}</span>
                 </div>
               )}
             </label>
@@ -213,7 +217,7 @@ export default function ReportSheet({
 
           {/* --- step 2: location --- */}
           <div>
-            <StepLabel n={2} label="Location" done={Boolean(coords)} />
+            <StepLabel n={2} label={t("location")} done={Boolean(coords)} />
             {coords ? (
               <div className="mt-2 flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.04] px-3.5 py-3">
                 <span className="font-mono text-xs text-white/75">
@@ -236,7 +240,7 @@ export default function ReportSheet({
                   disabled={stage === "locating"}
                   className="w-full rounded-2xl border border-white/12 bg-white/[0.05] py-3 text-sm text-white/85 transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.985] disabled:opacity-50"
                 >
-                  {stage === "locating" ? "Locating…" : "Use my location"}
+                  {stage === "locating" ? t("locating") : t("use_my_location")}
                 </button>
                 {manual && (
                   <div className="flex gap-2">
@@ -304,7 +308,7 @@ export default function ReportSheet({
             disabled={!canSubmit}
             className="w-full rounded-full bg-white py-3.5 text-[15px] font-semibold text-black transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.975] disabled:bg-white/25 disabled:text-white/50"
           >
-            {stage === "uploading" ? "Analysing…" : "Submit report"}
+            {stage === "uploading" ? t("analysing") : t("submit_report")}
           </button>
         </div>
       )}

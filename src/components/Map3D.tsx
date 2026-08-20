@@ -57,18 +57,31 @@ const STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 const BENGALURU: [number, number] = [77.5946, 12.9716];
 
 /**
- * This is a Bengaluru product, so the map is locked to Bengaluru. Panning off to the
- * Atlantic is not a feature — it just lets a demo get lost and loads tiles nobody needs.
- * Slightly padded around the city so the edges don't feel walled-in.
+ * Bengaluru's actual extent, from OpenStreetMap Nominatim: 34 x 35 km
+ * (lat 12.8335..13.1426, lng 77.4599..77.7841). Padded by ~0.03 deg so the edges of
+ * the city don't sit flush against a wall.
+ *
  * [[west, south], [east, north]]
  */
 const BENGALURU_BOUNDS: [[number, number], [number, number]] = [
-  [77.35, 12.75],
-  [77.9, 13.2],
+  [77.43, 12.8],
+  [77.81, 13.17],
 ];
 
-/** Below this the city stops filling the frame and you're looking at empty state. */
-const MIN_ZOOM = 10;
+/**
+ * NOTE: maxBounds constrains PANNING, not what the camera can see. On a wide window
+ * the horizon still spilled into neighbouring districts (Tumakuru, ~70km away, showed
+ * up in a desktop screenshot).
+ *
+ * Measured on an 1850px-wide viewport, visible width by camera pitch:
+ *   pitch 50 -> 68km | pitch 35 -> 54km | pitch 20 -> 47km | pitch 0 -> 41km
+ * Bengaluru itself is ~35km across, so PITCH is the dominant cause of spill, not zoom.
+ * 35 degrees keeps the 3D read while roughly halving how far past the city you can see.
+ */
+const MIN_ZOOM = 10.5;
+
+/** City overview tilt. Street-level fly-ins use a steeper angle where spill is moot. */
+const OVERVIEW_PITCH = 35;
 
 export const STATUS_COLOUR: Record<ReportStatus, string> = {
   open: "#ff3b30",
@@ -124,10 +137,14 @@ export interface MapHandle {
   resetView: () => void;
 }
 
+export type MapMode = "2d" | "3d";
+
 interface Props {
   reports: Report[];
   onSelect: (r: Report) => void;
   showFacilities: boolean;
+  /** 2D = flat top-down with circle markers; 3D = tilted with extruded pillars. */
+  mode: MapMode;
 }
 
 /**
@@ -147,7 +164,7 @@ function supportsWebGL2(): boolean {
 }
 
 const Map3D = forwardRef<MapHandle, Props>(function Map3D(
-  { reports, onSelect, showFacilities },
+  { reports, onSelect, showFacilities, mode },
   ref,
 ) {
   const container = useRef<HTMLDivElement>(null);
@@ -158,27 +175,28 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
   reportsRef.current = reports;
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
 
   useImperativeHandle(ref, () => ({
     flyToReport(r, opts) {
       map.current?.easeTo({
         center: [r.lng, r.lat],
         zoom: opts?.zoom ?? 16.5,
-        pitch: 62,
-        bearing: -22,
+        // A tilted camera in 2D mode would defeat the point of choosing 2D.
+        pitch: modeRef.current === "2d" ? 0 : 62,
+        bearing: modeRef.current === "2d" ? 0 : -22,
         duration: 1600,
         // Heavy, weighted deceleration — matches the motion language of the sheets.
         easing: (t) => 1 - Math.pow(1 - t, 4),
       });
     },
     resetView() {
-      map.current?.easeTo({
-        center: BENGALURU,
-        zoom: 11.4,
-        pitch: 50,
+      map.current?.fitBounds(BENGALURU_BOUNDS, {
+        padding: { top: 200, bottom: 90, left: 24, right: 24 },
+        pitch: OVERVIEW_PITCH,
         bearing: -18,
         duration: 1400,
-        easing: (t) => 1 - Math.pow(1 - t, 4),
       });
     },
   }));
@@ -198,7 +216,7 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
         style: STYLE_URL,
         center: BENGALURU,
         zoom: 11.4,
-        pitch: 50,
+        pitch: OVERVIEW_PITCH,
         bearing: -18,
         maxBounds: BENGALURU_BOUNDS,
         minZoom: MIN_ZOOM,
@@ -234,6 +252,19 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
     );
 
     m.on("load", () => {
+      /*
+       * Frame the city itself rather than trusting a hardcoded zoom. A fixed zoom that
+       * looks right on a phone shows three neighbouring districts on a wide desktop
+       * window. fitBounds solves for the viewport, so Bengaluru fills the screen at any
+       * size. Padding is asymmetric: the header card occupies the top ~200px.
+       */
+      m.fitBounds(BENGALURU_BOUNDS, {
+        padding: { top: 200, bottom: 90, left: 24, right: 24 },
+        pitch: OVERVIEW_PITCH,
+        bearing: -18,
+        duration: 0,
+      });
+
       // Dark-ify the vector style so the data reads as the bright layer, not the map.
       for (const layer of m.getStyle().layers ?? []) {
         try {
@@ -317,6 +348,7 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
         id: "report-pillars",
         type: "fill-extrusion",
         source: "reports",
+        layout: { visibility: mode === "3d" ? "visible" : "none" },
         paint: {
           "fill-extrusion-color": ["get", "colour"],
           "fill-extrusion-base": 0,
@@ -325,18 +357,47 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
         },
       });
 
-      m.on("click", "report-pillars", (e) => {
+      /*
+       * 2D counterpart. An extruded pillar viewed straight down is just a small square,
+       * so flat mode gets proper scaled circles instead — severity reads as radius the
+       * way it reads as height in 3D.
+       */
+      m.addLayer({
+        id: "report-dots",
+        type: "circle",
+        source: "reports",
+        layout: { visibility: mode === "2d" ? "visible" : "none" },
+        paint: {
+          "circle-radius": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            10,
+            ["+", 3, ["*", ["get", "severity"], 0.9]],
+            16,
+            ["+", 6, ["*", ["get", "severity"], 3]],
+          ],
+          "circle-color": ["get", "colour"],
+          "circle-opacity": 0.9,
+          "circle-stroke-width": 1.5,
+          "circle-stroke-color": "#070a0f",
+        },
+      });
+
+      for (const layerId of ["report-pillars", "report-dots"]) {
+      m.on("click", layerId, (e) => {
         const id = e.features?.[0]?.properties?.id as string | undefined;
         if (!id) return;
         const found = reportsRef.current.find((r) => r.id === id);
         if (found) onSelectRef.current(found);
       });
-      m.on("mouseenter", "report-pillars", () => {
+      m.on("mouseenter", layerId, () => {
         m.getCanvas().style.cursor = "pointer";
       });
-      m.on("mouseleave", "report-pillars", () => {
+      m.on("mouseleave", layerId, () => {
         m.getCanvas().style.cursor = "";
       });
+      }
 
       setReady(true);
     });
@@ -355,6 +416,28 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
     const src = map.current.getSource("reports") as GeoJSONSource | undefined;
     src?.setData(reportsToGeoJSON(reports) as never);
   }, [reports, ready]);
+
+  // --- 2D / 3D switch -------------------------------------------------------
+  useEffect(() => {
+    if (!ready || !map.current) return;
+    const m = map.current;
+    const is3d = mode === "3d";
+
+    m.setLayoutProperty("report-pillars", "visibility", is3d ? "visible" : "none");
+    m.setLayoutProperty("report-dots", "visibility", is3d ? "none" : "visible");
+    if (m.getLayer("building-3d")) {
+      m.setLayoutProperty("building-3d", "visibility", is3d ? "visible" : "none");
+    }
+    // The glow anchors pillars to the ground; in flat mode the dots are the marker.
+    m.setLayoutProperty("report-glow", "visibility", is3d ? "visible" : "none");
+
+    m.easeTo({
+      pitch: is3d ? OVERVIEW_PITCH : 0,
+      bearing: is3d ? -18 : 0,
+      duration: 700,
+      easing: (t) => 1 - Math.pow(1 - t, 4),
+    });
+  }, [mode, ready]);
 
   // --- real facilities layer ------------------------------------------------
   useEffect(() => {

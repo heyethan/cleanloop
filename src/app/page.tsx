@@ -1,21 +1,24 @@
 "use client";
 
 /**
- * CleanLoop main screen — 3D map with floating glass panels.
+ * CleanLoop main screen — 3D map / list, with filters, language and dimension toggles.
  *
  * Importers/callers: Next.js App Router renders this at "/".
- * Affected API: none exported; composes Map3D, ReportSheet, ResolveSheet, Leaderboard.
- * Data schemas: holds Report[] in state (created_at ISO-8601); calls GET /api/stats
- * for {total, open, claimed, verified, verified_rate, median_days_to_verified,
- * real_facilities}.
- * User instruction, verbatim: "also improve the ui/ux of the website"
+ * Affected API: none exported; composes Map3D, ListView, ReportSheet, ResolveSheet,
+ * Leaderboard.
+ * Data schemas: holds Report[] in state (created_at ISO-8601); calls GET /api/stats for
+ * {total, open, claimed, verified, verified_rate, median_days_to_verified, real_facilities}.
+ * User instruction, verbatim: "1. We already have a map view... give an option for list
+ * view as well 2. Create a severity filter dropdown and status filter as well
+ * 3. Localization option with english or kannada, english by default 4. let map view be
+ * only in dark mode 5. have map option for 2D or 3D which choice"
  *
- * UX decisions applied (see README "UX rationale"):
- *  - Anchoring / Social Proof: the first and largest number is VERIFIED cleanups,
- *    never complaint volume. Complaint counts prove nothing; closure proves the loop.
- *  - Fitts + thumb zone: the primary CTA is a full-width pill pinned to the bottom
- *    safe area, the easiest place to hit one-handed on a 6.1" phone.
- *  - Progressive disclosure: filters live behind a toggle, not permanently on screen.
+ * UX decisions applied:
+ *  - Anchoring / Social Proof: the first and largest number is VERIFIED cleanups.
+ *  - Fitts + thumb zone: primary CTA is a full-width pill in the bottom safe area.
+ *  - Progressive disclosure: filters stay behind a toggle.
+ *
+ * The map is dark-only by design — there is no light theme path anywhere in this app.
  */
 
 import dynamic from "next/dynamic";
@@ -24,17 +27,17 @@ import { useReports, filterReports } from "@/lib/useReports";
 import ReportSheet from "@/components/ReportSheet";
 import ResolveSheet from "@/components/ResolveSheet";
 import Leaderboard from "@/components/Leaderboard";
+import ListView, { type SortMode } from "@/components/ListView";
 import { WARDS } from "@/lib/wards";
-import type { MapHandle } from "@/components/Map3D";
+import { useLang } from "@/lib/i18n";
+import type { MapHandle, MapMode } from "@/components/Map3D";
 import type { Report, ReportStatus } from "@/lib/types";
 
 const Map3D = dynamic(() => import("@/components/Map3D"), {
   ssr: false,
   loading: () => (
     <div className="flex h-full w-full items-center justify-center bg-[#070a0f]">
-      <div className="text-xs uppercase tracking-[0.25em] text-white/50">
-        loading city
-      </div>
+      <div className="text-xs uppercase tracking-[0.25em] text-white/50">loading city</div>
     </div>
   ),
 });
@@ -49,8 +52,11 @@ interface Stats {
   real_facilities: number;
 }
 
+type View = "map" | "list";
+
 export default function Home() {
   const { reports, error, setReports } = useReports();
+  const { lang, setLang, t } = useLang();
   const [stats, setStats] = useState<Stats | null>(null);
   const [reporting, setReporting] = useState(false);
   const [selected, setSelected] = useState<Report | null>(null);
@@ -59,18 +65,21 @@ export default function Home() {
   const [showFacilities, setShowFacilities] = useState(true);
   const [ward, setWard] = useState<string | null>(null);
   const [status, setStatus] = useState<ReportStatus | null>(null);
+  const [severity, setSeverity] = useState<number | null>(null);
+  const [view, setView] = useState<View>("map");
+  const [mapMode, setMapMode] = useState<MapMode>("3d");
+  const [sort, setSort] = useState<SortMode>("severity");
   const mapRef = useRef<MapHandle>(null);
 
   /*
    * MUST be memoised. filterReports returns a new array identity on every call, and this
-   * value is a dependency of Map3D's source-sync effect — so an unmemoised version
-   * re-serialised and re-uploaded the entire GeoJSON to the GPU on every single render
-   * (every sheet open/close, every 15s stats refresh, every filter keystroke).
+   * feeds Map3D's source-sync effect — unmemoised it re-uploaded the whole GeoJSON to
+   * the GPU on every render.
    */
-  const visible = useMemo(
-    () => filterReports(reports, { ward, status }),
-    [reports, ward, status],
-  );
+  const visible = useMemo(() => {
+    const base = filterReports(reports, { ward, status });
+    return severity === null ? base : base.filter((r) => r.severity === severity);
+  }, [reports, ward, status, severity]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -94,40 +103,65 @@ export default function Home() {
   return (
     <main className="relative h-[100dvh] w-full overflow-hidden bg-[#070a0f] text-white">
       <div className="absolute inset-0">
-        <Map3D
-          ref={mapRef}
-          reports={visible}
-          onSelect={handleSelect}
-          showFacilities={showFacilities}
-        />
+        {view === "map" ? (
+          <Map3D
+            ref={mapRef}
+            reports={visible}
+            onSelect={handleSelect}
+            showFacilities={showFacilities}
+            mode={mapMode}
+          />
+        ) : (
+          <ListView
+            reports={visible}
+            sort={sort}
+            onSort={setSort}
+            onSelect={(r) => setSelected(r)}
+            lang={lang}
+          />
+        )}
       </div>
 
-      {/* Vignettes so glass panels stay legible over bright map areas */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-56 bg-gradient-to-b from-black/80 via-black/40 to-transparent" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-52 bg-gradient-to-t from-black/85 via-black/45 to-transparent" />
+      {view === "map" && (
+        <>
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-56 bg-gradient-to-b from-black/80 via-black/40 to-transparent" />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-52 bg-gradient-to-t from-black/85 via-black/45 to-transparent" />
+        </>
+      )}
 
       {/* ---------------------------------------------------------------- header */}
       <header className="pointer-events-none absolute inset-x-0 top-0 z-20 px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <div className="pointer-events-auto mx-auto w-full max-w-md rounded-[1.75rem] border border-white/10 bg-white/[0.06] p-1.5 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.9)] backdrop-blur-2xl">
           <div className="rounded-[calc(1.75rem-0.375rem)] bg-black/40 p-4 shadow-[inset_0_1px_1px_rgba(255,255,255,0.08)]">
-            <div className="flex items-start justify-between">
+            <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-[10px] uppercase tracking-[0.28em] text-white/55">
-                  Bengaluru
+                  {t("city")}
                 </div>
                 <h1 className="mt-1 text-[26px] font-semibold leading-none tracking-tight">
                   CleanLoop
                 </h1>
               </div>
-              <button
-                onClick={() => setShowBoard(true)}
-                className="group flex h-11 items-center gap-2 rounded-full border border-white/10 bg-white/5 pl-4 pr-1.5 text-xs font-medium text-white/80 transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.97]"
-              >
-                Wards
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-[11px] transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5">
-                  ↗
-                </span>
-              </button>
+
+              <div className="flex items-center gap-1.5">
+                <Segmented
+                  options={[
+                    { value: "en", label: "EN" },
+                    { value: "kn", label: "ಕ" },
+                  ]}
+                  value={lang}
+                  onChange={(v) => setLang(v as "en" | "kn")}
+                />
+                <button
+                  onClick={() => setShowBoard(true)}
+                  className="group flex h-11 items-center gap-2 rounded-full border border-white/10 bg-white/5 pl-3.5 pr-1.5 text-xs font-medium text-white/80 transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.97]"
+                >
+                  {t("wards")}
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-[11px] transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5">
+                    ↗
+                  </span>
+                </button>
+              </div>
             </div>
 
             {/* ANCHOR: verified first, biggest. Never lead with complaint volume. */}
@@ -137,7 +171,7 @@ export default function Home() {
                   {stats?.verified ?? "—"}
                 </div>
                 <div className="mt-1 text-[11px] leading-tight text-white/60">
-                  verified clean
+                  {t("verified_clean")}
                 </div>
               </div>
               <div className="mb-0.5 h-9 w-px bg-white/10" />
@@ -148,7 +182,7 @@ export default function Home() {
                     : "—"}
                 </div>
                 <div className="mt-1 text-[11px] leading-tight text-white/60">
-                  median to verify
+                  {t("median_to_verify")}
                 </div>
               </div>
               <div className="mb-0.5 h-9 w-px bg-white/10" />
@@ -157,76 +191,108 @@ export default function Home() {
                   {stats ? `${Math.round((stats.verified_rate ?? 0) * 100)}%` : "—"}
                 </div>
                 <div className="mt-1 text-[11px] leading-tight text-white/60">
-                  closure rate
+                  {t("closure_rate")}
                 </div>
               </div>
             </div>
 
-            <div className="mt-3.5 flex items-center gap-3 text-[11px] text-white/55">
-              <Dot colour="#ff3b30" label={`${stats?.open ?? 0} open`} />
-              <Dot colour="#ffb020" label={`${stats?.claimed ?? 0} held`} />
+            {/* view + dimension switches */}
+            <div className="mt-3.5 flex items-center gap-2">
+              <Segmented
+                options={[
+                  { value: "map", label: t("map_view") },
+                  { value: "list", label: t("list_view") },
+                ]}
+                value={view}
+                onChange={(v) => setView(v as View)}
+                grow
+              />
+              {view === "map" && (
+                <Segmented
+                  options={[
+                    { value: "3d", label: t("dim_3d") },
+                    { value: "2d", label: t("dim_2d") },
+                  ]}
+                  value={mapMode}
+                  onChange={(v) => setMapMode(v as MapMode)}
+                />
+              )}
+            </div>
+
+            <div className="mt-3 flex items-center gap-3 text-[11px] text-white/60">
+              <Dot colour="#ff3b30" label={`${stats?.open ?? 0} ${t("open_count")}`} />
+              <Dot colour="#ffb020" label={`${stats?.claimed ?? 0} ${t("held_count")}`} />
               <button
                 onClick={() => setShowFilters((v) => !v)}
                 className="ml-auto -my-3 flex h-11 min-w-11 items-center justify-center px-3 text-[11px] text-white/60 underline-offset-4 transition-colors hover:text-white/80"
               >
-                {showFilters ? "hide" : "filter"}
+                {showFilters ? t("hide") : t("filter")}
               </button>
             </div>
 
             {/* Progressive disclosure — filters are secondary, so they stay hidden */}
             <div
               className={`grid overflow-hidden transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${
-                showFilters
-                  ? "mt-3 grid-rows-[1fr] opacity-100"
-                  : "grid-rows-[0fr] opacity-0"
+                showFilters ? "mt-3 grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
               }`}
             >
-              <div className="min-h-0">
+              <div className="min-h-0 space-y-2">
                 <div className="flex gap-2">
-                  <select
-                    value={ward ?? ""}
-                    onChange={(e) => setWard(e.target.value || null)}
-                    className="h-11 w-1/2 rounded-xl border border-white/10 bg-white/5 px-2.5 text-xs text-white/80 outline-none"
-                  >
+                  <Select value={ward ?? ""} onChange={(v) => setWard(v || null)}>
                     <option value="" className="bg-neutral-900">
-                      All wards
+                      {t("all_wards")}
                     </option>
                     {WARDS.map((w) => (
                       <option key={w.id} value={w.id} className="bg-neutral-900">
                         {w.name}
                       </option>
                     ))}
-                  </select>
-                  <select
+                  </Select>
+                  <Select
                     value={status ?? ""}
-                    onChange={(e) =>
-                      setStatus((e.target.value || null) as ReportStatus | null)
-                    }
-                    className="h-11 w-1/2 rounded-xl border border-white/10 bg-white/5 px-2.5 text-xs text-white/80 outline-none"
+                    onChange={(v) => setStatus((v || null) as ReportStatus | null)}
                   >
                     <option value="" className="bg-neutral-900">
-                      All statuses
+                      {t("all_statuses")}
                     </option>
                     <option value="open" className="bg-neutral-900">
-                      Open
+                      {t("status_open")}
                     </option>
                     <option value="claimed" className="bg-neutral-900">
-                      Held for review
+                      {t("status_claimed")}
                     </option>
                     <option value="verified_resolved" className="bg-neutral-900">
-                      Verified clean
+                      {t("status_verified")}
                     </option>
-                  </select>
+                  </Select>
                 </div>
-                <label className="mt-1 flex h-11 items-center gap-2.5 text-[11px] text-white/60">
-                  <input
-                    type="checkbox"
-                    checked={showFacilities}
-                    onChange={(e) => setShowFacilities(e.target.checked)}
-                    className="h-5 w-5 shrink-0 accent-[#3f8cff]"
-                  />
-                  Show {stats?.real_facilities ?? 0} real OSM waste bins
-                </label>
+
+                <Select
+                  value={severity === null ? "" : String(severity)}
+                  onChange={(v) => setSeverity(v === "" ? null : Number(v))}
+                  full
+                >
+                  <option value="" className="bg-neutral-900">
+                    {t("all_severities")}
+                  </option>
+                  {[5, 4, 3, 2, 1].map((n) => (
+                    <option key={n} value={n} className="bg-neutral-900">
+                      {t("severity_label")} {n}/5
+                    </option>
+                  ))}
+                </Select>
+
+                {view === "map" && (
+                  <label className="flex h-11 items-center gap-2.5 text-[11px] text-white/60">
+                    <input
+                      type="checkbox"
+                      checked={showFacilities}
+                      onChange={(e) => setShowFacilities(e.target.checked)}
+                      className="h-5 w-5 shrink-0 accent-[#3f8cff]"
+                    />
+                    {t("show_bins", { n: stats?.real_facilities ?? 0 })}
+                  </label>
+                )}
               </div>
             </div>
 
@@ -241,7 +307,7 @@ export default function Home() {
           onClick={() => setReporting(true)}
           className="group mx-auto flex w-full max-w-md items-center justify-center gap-3 rounded-full border border-white/15 bg-white py-4 text-[15px] font-semibold text-black shadow-[0_20px_50px_-12px_rgba(255,255,255,0.35)] transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.975]"
         >
-          Report a dump spot
+          {t("report_cta")}
           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-black/10 text-xs transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5 group-hover:-translate-y-[1px]">
             ↗
           </span>
@@ -250,6 +316,7 @@ export default function Home() {
 
       {reporting && (
         <ReportSheet
+          lang={lang}
           onClose={() => setReporting(false)}
           onReported={(r) => {
             setReports((prev) => [r, ...prev]);
@@ -261,6 +328,7 @@ export default function Home() {
 
       {selected && (
         <ResolveSheet
+          lang={lang}
           report={selected}
           onClose={() => setSelected(null)}
           onResolved={(id, newStatus) => {
@@ -272,7 +340,7 @@ export default function Home() {
         />
       )}
 
-      {showBoard && <Leaderboard onClose={() => setShowBoard(false)} />}
+      {showBoard && <Leaderboard lang={lang} onClose={() => setShowBoard(false)} />}
     </main>
   );
 }
@@ -286,5 +354,57 @@ function Dot({ colour, label }: { colour: string; label: string }) {
       />
       {label}
     </span>
+  );
+}
+
+function Segmented({
+  options,
+  value,
+  onChange,
+  grow,
+}: {
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (v: string) => void;
+  grow?: boolean;
+}) {
+  return (
+    <div
+      className={`flex h-11 items-center gap-0.5 rounded-full border border-white/10 bg-white/[0.04] p-1 ${grow ? "flex-1" : ""}`}
+    >
+      {options.map((o) => (
+        <button
+          key={o.value}
+          onClick={() => onChange(o.value)}
+          className={`h-full rounded-full px-3 text-xs font-medium transition-colors duration-300 ${
+            grow ? "flex-1" : ""
+          } ${value === o.value ? "bg-white text-black" : "text-white/60 hover:text-white/85"}`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Select({
+  value,
+  onChange,
+  children,
+  full,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  children: React.ReactNode;
+  full?: boolean;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={`h-11 rounded-xl border border-white/10 bg-white/5 px-2.5 text-xs text-white/80 outline-none ${full ? "w-full" : "w-1/2"}`}
+    >
+      {children}
+    </select>
   );
 }

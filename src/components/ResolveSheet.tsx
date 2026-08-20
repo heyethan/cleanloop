@@ -21,6 +21,7 @@
 import { useEffect, useState } from "react";
 import { getSessionId } from "@/lib/session";
 import Sheet from "@/components/Sheet";
+import { translate, type Lang } from "@/lib/i18n";
 import type { Report, ReportStatus, Verification } from "@/lib/types";
 
 const WORK_STEPS = [
@@ -31,14 +32,17 @@ const WORK_STEPS = [
 ];
 
 export default function ResolveSheet({
+  lang,
   report,
   onClose,
   onResolved,
 }: {
+  lang: Lang;
   report: Report;
   onClose: () => void;
   onResolved: (id: string, status: ReportStatus) => void;
 }) {
+  const t = (k: string, v?: Record<string, string | number>) => translate(lang, k, v);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -98,8 +102,8 @@ export default function ResolveSheet({
 
   return (
     <Sheet
-      eyebrow={verification ? "Verification result" : "Close the loop"}
-      title={verification ? (isGreen ? "Verified clean" : "Held for review") : "Verify cleanup"}
+      eyebrow={verification ? t("verification_result") : t("close_the_loop")}
+      title={verification ? (isGreen ? t("status_verified") : t("held_for_review")) : t("verify_cleanup")}
       onClose={onClose}
     >
       <div className="space-y-4">
@@ -116,7 +120,7 @@ export default function ResolveSheet({
               {report.waste_type} · severity {report.severity}/5
             </span>
             <span className="text-[10px] uppercase tracking-[0.2em] text-white/55">
-              Before
+              {t("before")}
             </span>
           </div>
         </div>
@@ -150,7 +154,7 @@ export default function ResolveSheet({
                     isGreen ? "text-[#7df0c0]" : "text-[#ffd591]"
                   }`}
                 >
-                  {isGreen ? "Pin is now green" : "Case stays open"}
+                  {isGreen ? t("pin_now_green") : t("case_stays_open")}
                 </div>
               </div>
 
@@ -193,7 +197,7 @@ export default function ResolveSheet({
               onClick={onClose}
               className="w-full rounded-full bg-white py-3.5 text-[15px] font-semibold text-black transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.975]"
             >
-              Done
+              {t("done")}
             </button>
           </>
         ) : alreadyDone ? (
@@ -221,7 +225,7 @@ export default function ResolveSheet({
               ) : (
                 <div className="flex h-28 flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-white/15 bg-white/[0.03]">
                   <span className="text-lg">📷</span>
-                  <span className="text-sm text-white/70">Add the after photo</span>
+                  <span className="text-sm text-white/70">{t("after_photo")}</span>
                 </div>
               )}
             </label>
@@ -261,7 +265,7 @@ export default function ResolveSheet({
               disabled={busy || !file}
               className="w-full rounded-full bg-white py-3.5 text-[15px] font-semibold text-black transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.975] disabled:bg-white/25 disabled:text-white/50"
             >
-              {busy ? "Comparing…" : "Submit for verification"}
+              {busy ? t("comparing") : t("submit_for_verification")}
             </button>
           </>
         )}

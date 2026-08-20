@@ -17,6 +17,7 @@
 
 import { useEffect, useState } from "react";
 import Sheet from "@/components/Sheet";
+import { translate, type Lang } from "@/lib/i18n";
 
 interface Row {
   ward_id: string;
@@ -27,7 +28,14 @@ interface Row {
   avg_days_to_verified_resolution: number | null;
 }
 
-export default function Leaderboard({ onClose }: { onClose: () => void }) {
+export default function Leaderboard({
+  lang,
+  onClose,
+}: {
+  lang: Lang;
+  onClose: () => void;
+}) {
+  const t = (k: string, v?: Record<string, string | number>) => translate(lang, k, v);
   const [rows, setRows] = useState<Row[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -50,14 +58,14 @@ export default function Leaderboard({ onClose }: { onClose: () => void }) {
   const best = rows.find((r) => r.avg_days_to_verified_resolution != null);
 
   return (
-    <Sheet eyebrow="Accountability" title="Ward performance" onClose={onClose}>
+    <Sheet eyebrow={t("accountability")} title={t("ward_performance")} onClose={onClose}>
       <p className="-mt-2 mb-4 text-[11px] leading-relaxed text-white/60">
         Ranked by average days to <span className="text-white/75">verified</span>{" "}
         resolution. Complaint volume is shown but never ranked on — counting
         complaints rewards noise, not outcomes.
       </p>
 
-      {loading && <div className="py-10 text-center text-xs text-white/55">Loading…</div>}
+      {loading && <div className="py-10 text-center text-xs text-white/55">{t("loading")}</div>}
       {error && (
         <div className="rounded-2xl border border-red-400/25 bg-red-400/10 p-3 text-[11px] text-red-200">
           {error}
@@ -92,7 +100,7 @@ export default function Leaderboard({ onClose }: { onClose: () => void }) {
                     </span>
                     {isBest && (
                       <span className="shrink-0 rounded-full bg-[#22c98a]/20 px-2 py-0.5 text-[9px] uppercase tracking-[0.15em] text-[#7df0c0]">
-                        fastest
+                        {t("fastest")}
                       </span>
                     )}
                   </div>
@@ -113,7 +121,7 @@ export default function Leaderboard({ onClose }: { onClose: () => void }) {
 
                 <div className="mt-1.5 flex justify-between text-[10px] text-white/55">
                   <span>
-                    {r.total_verified_resolutions} of {r.total_reports} verified
+                    {t("verified_of", { a: r.total_verified_resolutions, b: r.total_reports })}
                   </span>
                   <span className="tabular-nums">{Math.round(rate * 100)}%</span>
                 </div>
