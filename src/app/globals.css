@@ -12,15 +12,30 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/*
+ * No dark-mode override on purpose. Every panel in this app is bg-white over a
+ * light map, and the sheet headings inherit body colour — a dark --foreground
+ * rendered them near-white on white (invisible) for anyone whose OS is set to
+ * dark. The UI is light-only by design, so the palette is fixed.
+ */
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/*
+ * Leaflet renders its zoom control at the top-left of the map, which sits
+ * underneath the floating header card. Push the top-left control stack below
+ * the card so the +/- buttons stay reachable instead of overlapping the title.
+ */
+.leaflet-top.leaflet-left {
+  margin-top: 168px;
+}
+
+@media (min-width: 640px) {
+  .leaflet-top.leaflet-left {
+    margin-top: 142px;
+  }
 }

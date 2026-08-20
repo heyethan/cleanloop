@@ -163,8 +163,11 @@ export default function ReportSheet({
                 accept="image/*"
                 capture="environment"
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                className="w-full text-sm"
+                className="block w-full cursor-pointer rounded-lg border border-dashed border-neutral-300 p-3 text-sm text-neutral-600 file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-neutral-900 file:px-3 file:py-1.5 file:text-sm file:text-white"
               />
+              {file && (
+                <p className="mt-1 truncate text-xs text-neutral-500">{file.name}</p>
+              )}
             </div>
 
             <div>
