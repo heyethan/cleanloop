@@ -13,17 +13,22 @@
  * Thin swappable interface. Routes depend ONLY on `AiProvider`, never on a vendor SDK,
  * so changing provider is this one file and nothing else.
  *
- * WIRING IS DELIBERATELY HELD. The only implementation registered today is `stubProvider`,
- * which is deterministic and makes no network calls. This is an explicit decision, not an
- * omission — the provider question is unsettled, so the app is built and demoable without
- * committing to one.
+ * Two implementations are registered:
+ *   stub      — deterministic, no network. The default, and what CI and seeding use.
+ *   anthropic — live (./providers/anthropic). Selected with CLEANLOOP_AI_PROVIDER=anthropic.
  *
- * The prompts in ./prompts.ts were verified live against gemini-3.6-flash on 2026-08-20
- * (classify, complaint, and verify all returned correct structured output, including a
- * negative control where an identical before/after pair correctly returned not_clean at
- * 0.98 confidence). So the prompt design is proven; only the transport is pending.
+ * `stubProvider` is NOT dead code and should not be deleted. It keeps the app fully
+ * demoable with no key, no spend and no network, and it is what `isLive: false` drives:
+ * the UI states plainly that a result is simulated rather than presenting a stub verdict
+ * as a real one.
  *
- * TO WIRE A REAL PROVIDER:
+ * The prompts in ./prompts.ts were verified live on 2026-08-21 against the two models this
+ * app now uses, on real photographs: four integrity cases, all correct. The two that carry
+ * the product are (a) a dirty before paired with a *different* clean street must return
+ * `ambiguous`, never `verified_clean`, and (b) the same scene re-photographed with waste
+ * still present must return `not_clean`. Both held.
+ *
+ * TO ADD ANOTHER PROVIDER:
  *   1. implement AiProvider (three methods)
  *   2. register it in `providers` below
  *   3. set CLEANLOOP_AI_PROVIDER=<name> in .env.local
@@ -31,6 +36,7 @@
  */
 
 import type { Classification, ComplaintInput, Verification } from "./types";
+import { anthropicProvider } from "./providers/anthropic";
 
 export interface ImageInput {
   /** base64-encoded image bytes, no data: prefix */
@@ -133,6 +139,7 @@ export const stubProvider: AiProvider = {
 
 const providers: Record<string, AiProvider> = {
   stub: stubProvider,
+  anthropic: anthropicProvider,
 };
 
 export function getProvider(): AiProvider {

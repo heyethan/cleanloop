@@ -76,6 +76,31 @@ export function nearestWard(lat: number, lng: number, maxMetres = 15_000): Ward 
   return bestD <= maxMetres ? best : null;
 }
 
+/**
+ * [[west, south], [east, north]] — the same box the map camera is clamped to.
+ *
+ * This exists because "is it a valid coordinate on Earth" is the wrong question for a
+ * Bengaluru-only app. A half-filled manual location form yielded lat 1 / lng 0 — a point
+ * in the Gulf of Guinea — which passed a -90..90 / -180..180 check and was written to the
+ * database as a real report. Validate against the city, not the planet.
+ */
+export const BENGALURU_BOUNDS: [[number, number], [number, number]] = [
+  [77.43, 12.8],
+  [77.81, 13.17],
+];
+
+export function isInBengaluru(lat: number, lng: number): boolean {
+  const [[west, south], [east, north]] = BENGALURU_BOUNDS;
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= south &&
+    lat <= north &&
+    lng >= west &&
+    lng <= east
+  );
+}
+
 export function wardName(id: string | null): string | null {
   if (!id) return null;
   return WARDS.find((w) => w.id === id)?.name ?? null;

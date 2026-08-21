@@ -35,6 +35,10 @@ Requirements:
 - Neutral, factual, administrative tone. No exaggeration, no emotive language, no accusations.
 - State what was observed, where, and that action is requested.
 - Do not invent details that were not provided.
+- Plain prose only. No markdown, no headings, no bold, no bullet points, no subject line,
+  no salutation and no sign-off. The output is pasted verbatim into a complaint form, so
+  any formatting characters appear literally to the reader.
+- Begin with the first sentence of the complaint itself.
 
 Details provided:`;
 
@@ -63,7 +67,12 @@ confidence. Do not return verified_clean for a photo of a different clean locati
 Lighting, time of day, weather and camera angle will differ between the two photos. Those
 differences alone are NOT evidence that the location differs or that waste remains.
 
-confidence is 0-1. reasoning is a single short sentence.`;
+confidence is 0-1 and means how certain you are OF THE RESULT YOU RETURN — not how clean the
+site is. Returning "ambiguous" because the two photos clearly show different places is a
+CONFIDENT ambiguous: report high confidence. Only report low confidence when you genuinely
+cannot decide between the three results.
+
+reasoning is a single short sentence.`;
 
 /** Response schemas, provider-independent (JSON Schema subset). */
 export const CLASSIFY_SCHEMA = {

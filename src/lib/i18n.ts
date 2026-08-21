@@ -87,6 +87,7 @@ export const STRINGS: Record<Lang, Dict> = {
     choose_file: "JPG or PNG from this device",
     needs_photo: "Add a photo to continue",
     needs_location: "Add a location to continue",
+    location_outside: "That location is outside Bengaluru",
     after_submit:
       "Posts to the public map immediately and counts toward your ward's resolution time.",
     tap_to_change: "Tap to change",
@@ -187,6 +188,7 @@ export const STRINGS: Record<Lang, Dict> = {
     choose_file: "ಈ ಸಾಧನದಿಂದ JPG ಅಥವಾ PNG",
     needs_photo: "ಮುಂದುವರಿಯಲು ಫೋಟೋ ಸೇರಿಸಿ",
     needs_location: "ಮುಂದುವರಿಯಲು ಸ್ಥಳ ಸೇರಿಸಿ",
+    location_outside: "ಆ ಸ್ಥಳ ಬೆಂಗಳೂರಿನ ಹೊರಗಿದೆ",
     after_submit:
       "ತಕ್ಷಣ ಸಾರ್ವಜನಿಕ ನಕ್ಷೆಯಲ್ಲಿ ಕಾಣಿಸುತ್ತದೆ ಮತ್ತು ನಿಮ್ಮ ವಾರ್ಡ್‌ನ ಇತ್ಯರ್ಥ ಸಮಯದಲ್ಲಿ ಎಣಿಸಲಾಗುತ್ತದೆ.",
     tap_to_change: "ಬದಲಾಯಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ",

@@ -22,7 +22,7 @@ import {
   RECURRING_WINDOW_DAYS,
 } from "@/lib/supabase";
 import { getProvider } from "@/lib/ai";
-import { nearestWard } from "@/lib/wards";
+import { isInBengaluru, nearestWard } from "@/lib/wards";
 
 /** Photos come off a phone camera; cap to keep uploads and model calls sane. */
 const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
@@ -74,6 +74,18 @@ export async function POST(req: Request) {
     }
     if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
       return NextResponse.json({ error: "invalid lng" }, { status: 400 });
+    }
+    /*
+     * A coordinate can be valid on Earth and still be nonsense here. A half-filled manual
+     * location form produced lat 1 / lng 0 — the Gulf of Guinea — and the globe-bounds
+     * check above waved it through into the reports table. This app covers one city, so
+     * that is the boundary worth enforcing.
+     */
+    if (!isInBengaluru(lat, lng)) {
+      return NextResponse.json(
+        { error: "That location is outside Bengaluru." },
+        { status: 400 },
+      );
     }
 
     const db = serverClient();

@@ -22,8 +22,9 @@ import { useEffect, useState } from "react";
 import { getSessionId } from "@/lib/session";
 import Sheet from "@/components/Sheet";
 import { translate, type Lang } from "@/lib/i18n";
-import { nearestWard } from "@/lib/wards";
+import { isInBengaluru, nearestWard } from "@/lib/wards";
 import type { Report } from "@/lib/types";
+import { ThinkingOrb } from "thinking-orbs";
 
 type Stage = "idle" | "locating" | "uploading" | "done" | "error";
 
@@ -126,13 +127,25 @@ export default function ReportSheet({
     }
   }
 
-  const canSubmit = Boolean(file && coords) && stage !== "uploading";
+  /*
+   * `coords` alone is not enough: the manual fallback writes each field independently, so
+   * typing only a latitude leaves longitude at 0 and yields a real-looking point in the
+   * Atlantic. Check the city, not just presence.
+   */
+  const coordsValid = Boolean(coords && isInBengaluru(coords.lat, coords.lng));
+  const canSubmit = Boolean(file) && coordsValid && stage !== "uploading";
 
   /*
    * A disabled button with no stated reason makes the user hunt for what they missed.
    * Name the single next thing instead — photo first, since it is step 1.
    */
-  const blockedReason = !file ? t("needs_photo") : !coords ? t("needs_location") : null;
+  const blockedReason = !file
+    ? t("needs_photo")
+    : !coords
+      ? t("needs_location")
+      : !coordsValid
+        ? t("location_outside")
+        : null;
 
   /* Desktop has no camera; don't promise one. */
   const [hasCamera, setHasCamera] = useState(true);
@@ -307,6 +320,15 @@ export default function ReportSheet({
           {/* LABOR ILLUSION: name the work instead of showing a blank spinner */}
           {stage === "uploading" && (
             <div className="space-y-2 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+              {/*
+               * The orb is the focal point the named steps lacked: it reads as "a model is
+               * looking at your photo" in a way a list of ticks cannot. theme is pinned
+               * rather than left "auto" because we set neither data-theme nor .dark, so auto
+               * falls through to the OS preference and would paint dark ink on this sheet.
+               */}
+              <div className="flex justify-center pb-1">
+                <ThinkingOrb state="searching" size={64} theme="dark" aria-label={t("analysing")} />
+              </div>
               {WORK_STEPS.map((s, i) => (
                 <div
                   key={s}

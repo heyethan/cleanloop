@@ -23,6 +23,7 @@ import { getSessionId } from "@/lib/session";
 import Sheet from "@/components/Sheet";
 import { translate, type Lang } from "@/lib/i18n";
 import type { Report, ReportStatus, Verification } from "@/lib/types";
+import { ThinkingOrb } from "thinking-orbs";
 
 const WORK_STEPS = [
   "Uploading your photo",
@@ -245,6 +246,14 @@ export default function ResolveSheet({
 
             {busy && (
               <div className="space-y-2 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                {/*
+                 * "solving" rather than "searching": this call is the before/after
+                 * comparison, which is the one thing here a generic waste app doesn't do.
+                 * Worth showing as deliberation, not lookup.
+                 */}
+                <div className="flex justify-center pb-1">
+                  <ThinkingOrb state="solving" size={64} theme="dark" aria-label={t("comparing")} />
+                </div>
                 {WORK_STEPS.map((s, i) => (
                   <div
                     key={s}
@@ -334,7 +343,10 @@ function ExistingProof({ reportId, lang }: { reportId: string; lang: Lang }) {
 
   if (state === "loading") {
     return (
-      <div className="h-40 animate-pulse rounded-2xl border border-white/10 bg-white/[0.04]" />
+      <div className="flex h-40 items-center justify-center gap-2.5 rounded-2xl border border-white/10 bg-white/[0.04]">
+        <ThinkingOrb state="working" size={20} theme="dark" aria-label={t("loading")} />
+        <span className="text-xs text-white/55">{t("loading")}</span>
+      </div>
     );
   }
 

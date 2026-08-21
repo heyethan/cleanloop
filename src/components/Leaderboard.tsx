@@ -18,6 +18,7 @@
 import { useEffect, useState } from "react";
 import Sheet from "@/components/Sheet";
 import { translate, type Lang } from "@/lib/i18n";
+import { ThinkingOrb } from "thinking-orbs";
 
 interface Row {
   ward_id: string;
@@ -73,7 +74,12 @@ export default function Leaderboard({
         complaints rewards noise, not outcomes.
       </p>
 
-      {loading && <div className="py-10 text-center text-xs text-white/55">{t("loading")}</div>}
+      {loading && (
+        <div className="flex items-center justify-center gap-2.5 py-10 text-xs text-white/55">
+          <ThinkingOrb state="working" size={20} theme="dark" aria-label={t("loading")} />
+          {t("loading")}
+        </div>
+      )}
       {error && (
         <div className="rounded-2xl border border-red-400/25 bg-red-400/10 p-3 text-[11px] text-red-200">
           {error}
