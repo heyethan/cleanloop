@@ -9,13 +9,13 @@
     "lint": "eslint",
     "selfcheck": "node --experimental-strip-types scripts/selfcheck.ts",
     "seed": "node --experimental-strip-types --env-file=.env.local scripts/seed.ts",
+    "wards": "node --experimental-strip-types scripts/fetch-ward-boundaries.ts",
     "predev": "node ./scripts/copy-maplibre-worker.mjs",
     "prebuild": "node ./scripts/copy-maplibre-worker.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.119.0",
+    "@paper-design/shaders-react": "^0.0.80",
     "@supabase/supabase-js": "^2.112.3",
-    "gsap": "^3.15.0",
     "maplibre-gl": "^6.4.1",
     "motion": "^13.1.1",
     "next": "16.3.1",

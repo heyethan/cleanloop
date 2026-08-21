@@ -24,7 +24,14 @@
  *    a severe open dump is unmistakable from across the city.
  */
 
-import { useEffect, useImperativeHandle, useRef, useState, forwardRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  forwardRef,
+} from "react";
 // MapLibre v6 has no default export — these are all named exports.
 import {
   Map as MLMap,
@@ -34,6 +41,8 @@ import {
   type GeoJSONSource,
 } from "maplibre-gl";
 import type { Report, ReportStatus } from "@/lib/types";
+import { WARDS } from "@/lib/wards";
+import { buildWardShapes } from "@/lib/wardShapes";
 
 /**
  * REQUIRED, and the reason this map was blank for its entire first life.
@@ -82,6 +91,29 @@ const MIN_ZOOM = 10.5;
 
 /** City overview tilt. Street-level fly-ins use a steeper angle where spill is moot. */
 const OVERVIEW_PITCH = 35;
+
+/*
+ * ---------------------------------------------------------------- locality flight
+ * Tuning constants for the Cmd-K locality flight. Grouped and named so this is a
+ * one-line change to iterate on, which is what was asked for.
+ */
+
+/** Zoom the camera settles at when arriving in a locality. */
+const WARD_ZOOM = 14.2;
+/** Camera tilt on arrival — steeper than the city overview so pillars read as height. */
+const WARD_PITCH = 55;
+/** Travel time to the locality. */
+const WARD_FLY_MS = 2000;
+/**
+ * Degrees of bearing swept after arrival. A SETTLING arc, not an endless spin: an
+ * infinite orbit fights the user's own input, drains the phone, and breaks the
+ * interruptibility rule (an animation must always be grabbable and reversible).
+ */
+const ORBIT_ARC_DEG = 55;
+/** Duration of that arc. */
+const ORBIT_MS = 5200;
+/** How long the pillars take to extrude from flat to full height on arrival. */
+const PILLAR_GROW_MS = 1100;
 
 export const STATUS_COLOUR: Record<ReportStatus, string> = {
   open: "#ff3b30",
@@ -134,6 +166,8 @@ function reportsToGeoJSON(reports: Report[]) {
 export interface MapHandle {
   /** Cinematic fly to a report — used for the peak moment when a pin verifies. */
   flyToReport: (r: Report, opts?: { zoom?: number }) => void;
+  /** Fly to a locality, settle into a slow orbit, and extrude its pillars on arrival. */
+  flyToWard: (wardId: string) => void;
   resetView: () => void;
 }
 
@@ -145,6 +179,11 @@ interface Props {
   showFacilities: boolean;
   /** 2D = flat top-down with circle markers; 3D = tilted with extruded pillars. */
   mode: MapMode;
+  /**
+   * The locality currently outlined, so the surrounding UI can name it and say whether
+   * the shape is a surveyed boundary or a report cluster.
+   */
+  onActiveWard?: (v: { id: string; name: string; kind: "official" | "cluster" } | null) => void;
 }
 
 /**
@@ -164,7 +203,7 @@ function supportsWebGL2(): boolean {
 }
 
 const Map3D = forwardRef<MapHandle, Props>(function Map3D(
-  { reports, onSelect, showFacilities, mode },
+  { reports, onSelect, showFacilities, mode, onActiveWard },
   ref,
 ) {
   const container = useRef<HTMLDivElement>(null);
@@ -177,6 +216,82 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
   onSelectRef.current = onSelect;
   const modeRef = useRef(mode);
   modeRef.current = mode;
+  const onActiveWardRef = useRef(onActiveWard);
+  onActiveWardRef.current = onActiveWard;
+
+  /** Feature id currently painted as active, so we can clear exactly one. */
+  const activeFeature = useRef<number | null>(null);
+  /** Handles for the two rAF loops, so a new flight (or a touch) can cancel them. */
+  const orbitRaf = useRef<number | null>(null);
+  const growRaf = useRef<number | null>(null);
+
+  const stopOrbit = useCallback(() => {
+    if (orbitRaf.current !== null) {
+      cancelAnimationFrame(orbitRaf.current);
+      orbitRaf.current = null;
+    }
+  }, []);
+
+  /** Paint one locality as active and clear whatever was active before. */
+  const setActiveWard = useCallback((featureId: number | null) => {
+    const m = map.current;
+    if (!m || !m.getSource("ward-shapes")) return;
+    if (activeFeature.current === featureId) return;
+
+    if (activeFeature.current !== null) {
+      m.setFeatureState(
+        { source: "ward-shapes", id: activeFeature.current },
+        { active: false },
+      );
+    }
+    activeFeature.current = featureId;
+
+    if (featureId !== null) {
+      m.setFeatureState({ source: "ward-shapes", id: featureId }, { active: true });
+      const ward = WARDS[featureId];
+      const kind =
+        (m.querySourceFeatures("ward-shapes").find((f) => f.id === featureId)?.properties
+          ?.kind as "official" | "cluster" | undefined) ?? "cluster";
+      onActiveWardRef.current?.(ward ? { id: ward.id, name: ward.name, kind } : null);
+    } else {
+      onActiveWardRef.current?.(null);
+    }
+  }, []);
+
+  /**
+   * Extrude the pillars from flat to their real height.
+   *
+   * Driven by rAF rather than a MapLibre paint transition: `fill-extrusion-height` here
+   * is a DATA-DRIVEN expression (`["get","height"]`), and MapLibre does not interpolate
+   * transitions on data-driven paint properties — setting `-transition` would silently do
+   * nothing. Multiplying the expression by a scalar each frame is ~120 features on one
+   * uniform, which is cheap for a one-second animation.
+   */
+  const growPillars = useCallback(() => {
+    const m = map.current;
+    if (!m || !m.getLayer("report-pillars")) return;
+    if (growRaf.current !== null) cancelAnimationFrame(growRaf.current);
+
+    const start = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / PILLAR_GROW_MS);
+      // Ease-out-quart, the same deceleration curve the camera and sheets use.
+      const eased = 1 - Math.pow(1 - t, 4);
+      try {
+        m.setPaintProperty("report-pillars", "fill-extrusion-height", [
+          "*",
+          ["get", "height"],
+          Math.max(0.001, eased),
+        ]);
+      } catch {
+        /* layer can vanish mid-animation on a style change; stopping is correct */
+        return;
+      }
+      if (t < 1) growRaf.current = requestAnimationFrame(tick);
+      else growRaf.current = null;
+    };
+    growRaf.current = requestAnimationFrame(tick);
+  }, []);
 
   useImperativeHandle(ref, () => ({
     flyToReport(r, opts) {
@@ -191,7 +306,52 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
         easing: (t) => 1 - Math.pow(1 - t, 4),
       });
     },
+    flyToWard(wardId) {
+      const m = map.current;
+      if (!m) return;
+      const index = WARDS.findIndex((w) => w.id === wardId);
+      const ward = WARDS[index];
+      if (!ward) return;
+
+      stopOrbit();
+      setActiveWard(index);
+
+      const is3d = modeRef.current === "3d";
+      const startBearing = m.getBearing();
+
+      m.easeTo({
+        center: [ward.lng, ward.lat],
+        zoom: WARD_ZOOM,
+        pitch: is3d ? WARD_PITCH : 0,
+        bearing: startBearing,
+        duration: WARD_FLY_MS,
+        easing: (t) => 1 - Math.pow(1 - t, 4),
+      });
+
+      // Pillars extrude as the camera lands, so the two motions read as one arrival.
+      if (is3d) window.setTimeout(growPillars, WARD_FLY_MS * 0.55);
+
+      /*
+       * Then a slow settling orbit. Driven by rAF and easeTo-free so it can be abandoned
+       * on the exact frame the user touches the map — an animation the user cannot grab
+       * and stop is the thing Apple's fluid-interface guidance warns against.
+       */
+      if (!is3d) return;
+      window.setTimeout(() => {
+        const begin = performance.now();
+        const from = m.getBearing();
+        const tick = (now: number) => {
+          const t = Math.min(1, (now - begin) / ORBIT_MS);
+          const eased = 1 - Math.pow(1 - t, 3);
+          m.setBearing(from + ORBIT_ARC_DEG * eased);
+          orbitRaf.current = t < 1 ? requestAnimationFrame(tick) : null;
+        };
+        orbitRaf.current = requestAnimationFrame(tick);
+      }, WARD_FLY_MS);
+    },
     resetView() {
+      stopOrbit();
+      setActiveWard(null);
       map.current?.fitBounds(BENGALURU_BOUNDS, {
         padding: { top: 200, bottom: 90, left: 24, right: 24 },
         pitch: OVERVIEW_PITCH,
@@ -298,6 +458,78 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
         }
       }
 
+      /*
+       * --- locality outlines -------------------------------------------------
+       * Added FIRST so every data layer draws above them: this is context, not content.
+       *
+       * Two visual kinds, and the distinction is a matter of honesty rather than taste:
+       *   official -> a real surveyed OSM boundary. Solid line.
+       *   cluster  -> a convex hull of that locality's own reports, because OSM has no
+       *               boundary for it at all. Dashed, so it can never be mistaken for a
+       *               surveyed one. See src/lib/wardShapes.ts for why.
+       */
+      m.addSource("ward-shapes", {
+        type: "geojson",
+        data: buildWardShapes(reportsRef.current),
+      });
+
+      m.addLayer({
+        id: "ward-fill",
+        type: "fill",
+        source: "ward-shapes",
+        paint: {
+          "fill-color": [
+            "case",
+            ["==", ["get", "kind"], "official"],
+            "#4da3ff",
+            "#7d8ea3",
+          ],
+          // Only the active locality tints; the rest stay invisible so the map is calm.
+          "fill-opacity": [
+            "case",
+            ["boolean", ["feature-state", "active"], false],
+            0.12,
+            0,
+          ],
+          "fill-opacity-transition": { duration: 280, delay: 0 },
+        },
+      });
+
+      m.addLayer({
+        id: "ward-line",
+        type: "line",
+        source: "ward-shapes",
+        layout: { "line-join": "round" },
+        paint: {
+          "line-color": [
+            "case",
+            ["==", ["get", "kind"], "official"],
+            "#6cb6ff",
+            "#93a4b8",
+          ],
+          "line-width": [
+            "case",
+            ["boolean", ["feature-state", "active"], false],
+            2,
+            0,
+          ],
+          "line-opacity": [
+            "case",
+            ["boolean", ["feature-state", "active"], false],
+            0.9,
+            0,
+          ],
+          // Dashed == derived from our reports, solid == surveyed boundary.
+          "line-dasharray": [
+            "case",
+            ["==", ["get", "kind"], "official"],
+            ["literal", [1, 0]],
+            ["literal", [2, 1.6]],
+          ],
+          "line-opacity-transition": { duration: 280, delay: 0 },
+        },
+      });
+
       // --- real OSM waste infrastructure (genuine data layer) ---------------
       m.addSource("facilities", {
         type: "geojson",
@@ -399,6 +631,34 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
       });
       }
 
+      /*
+       * Locality highlight. Desktop gets true hover; touch has no hover at all, so on a
+       * phone the same outline is driven by a tap on the map background (and by the
+       * Cmd-K locality search, which calls flyToWard).
+       */
+      m.on("mousemove", "ward-fill", (e) => {
+        const id = e.features?.[0]?.id;
+        if (typeof id === "number") setActiveWard(id);
+      });
+      m.on("mouseleave", "ward-fill", () => setActiveWard(null));
+
+      m.on("click", (e) => {
+        // A tap that landed on a report is handled by the pillar/dot handlers above.
+        const onReport = m.queryRenderedFeatures(e.point, {
+          layers: ["report-pillars", "report-dots"].filter((l) => m.getLayer(l)),
+        });
+        if (onReport.length) return;
+
+        const hit = m.queryRenderedFeatures(e.point, { layers: ["ward-fill"] });
+        const id = hit[0]?.id;
+        setActiveWard(typeof id === "number" ? id : null);
+      });
+
+      // Any hand on the map wins over the orbit, immediately.
+      for (const ev of ["dragstart", "touchstart", "wheel", "mousedown"] as const) {
+        m.on(ev, stopOrbit);
+      }
+
       setReady(true);
     });
 
@@ -416,6 +676,35 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
     const src = map.current.getSource("reports") as GeoJSONSource | undefined;
     src?.setData(reportsToGeoJSON(reports) as never);
   }, [reports, ready]);
+
+  /*
+   * --- keep locality shapes in sync -----------------------------------------
+   * The hull-based shapes are DERIVED from the visible reports, so they have to be
+   * rebuilt when the filters change. setData resets feature state, so the active
+   * highlight is re-applied afterwards rather than silently disappearing.
+   */
+  useEffect(() => {
+    if (!ready || !map.current) return;
+    const m = map.current;
+    const src = m.getSource("ward-shapes") as GeoJSONSource | undefined;
+    if (!src) return;
+    src.setData(buildWardShapes(reports) as never);
+    if (activeFeature.current !== null) {
+      m.setFeatureState(
+        { source: "ward-shapes", id: activeFeature.current },
+        { active: true },
+      );
+    }
+  }, [reports, ready]);
+
+  /** Stop both animation loops if the component goes away mid-flight. */
+  useEffect(
+    () => () => {
+      if (orbitRaf.current !== null) cancelAnimationFrame(orbitRaf.current);
+      if (growRaf.current !== null) cancelAnimationFrame(growRaf.current);
+    },
+    [],
+  );
 
   // --- 2D / 3D switch -------------------------------------------------------
   useEffect(() => {

@@ -29,7 +29,10 @@ import ResolveSheet from "@/components/ResolveSheet";
 import Leaderboard from "@/components/Leaderboard";
 import ListView, { type SortMode } from "@/components/ListView";
 import Island, { IslandCollapse } from "@/components/Island";
+import CommandPalette from "@/components/CommandPalette";
+import LiquidMetalButton from "@/components/LiquidMetalButton";
 import { WARDS } from "@/lib/wards";
+import officialWards from "@/data/wards.json";
 import { useLang } from "@/lib/i18n";
 import type { MapHandle, MapMode } from "@/components/Map3D";
 import type { Report, ReportStatus } from "@/lib/types";
@@ -79,6 +82,63 @@ export default function Home() {
     setIslandOpen(window.matchMedia("(min-width: 640px)").matches);
   }, []);
   const mapRef = useRef<MapHandle>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [activeWard, setActiveWard] = useState<{
+    id: string;
+    name: string;
+    kind: "official" | "cluster";
+  } | null>(null);
+
+  /** Ward ids OSM actually has a surveyed boundary for — 5 of 12 at time of writing. */
+  const officialIds = useMemo(
+    () =>
+      new Set(
+        (officialWards as { features: { properties: { id: string } }[] }).features.map(
+          (f) => f.properties.id,
+        ),
+      ),
+    [],
+  );
+
+  /*
+   * Publish the island's LIVE height as --island-h so ListView can pad by it.
+   *
+   * ListView previously hardcoded pt-[248px] to clear the expanded island. Measured on a
+   * 393x852 iPhone 14 Pro the island is 249px tall starting at y=12, so its bottom edge
+   * is at y=261 and it covered the first 13px of the list. Any constant tuned to another
+   * component's rendered height is a bug waiting for that component to change — so
+   * measure it instead of guessing again.
+   */
+  const headerRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const publish = () => {
+      document.documentElement.style.setProperty(
+        "--island-h",
+        `${Math.round(el.getBoundingClientRect().height)}px`,
+      );
+    };
+    publish();
+    const ro = new ResizeObserver(publish);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  /*
+   * The island is a MAP heads-up display. Over a scrolling list it is only an occluder,
+   * so entering list view collapses it. ListView carries its own "back to map" control
+   * so this never costs a round trip through the HUD.
+   */
+  useEffect(() => {
+    if (view === "list") setIslandOpen(false);
+  }, [view]);
+
+  const flyToWard = useCallback((wardId: string) => {
+    setView("map");
+    setIslandOpen(false);
+    mapRef.current?.flyToWard(wardId);
+  }, []);
 
   /*
    * MUST be memoised. filterReports returns a new array identity on every call, and this
@@ -114,24 +174,56 @@ export default function Home() {
 
   return (
     <main className="relative h-[100dvh] w-full overflow-hidden bg-[#070a0f] text-white">
+      {/*
+        BOTH layers stay mounted, always.
+
+        This used to be a `view === "map" ? <Map3D/> : <ListView/>` ternary. Map3D is a
+        `next/dynamic` ssr:false import, so switching to the list DESTROYED the MapLibre
+        instance: coming back rebuilt the map, refetched the style and every vector tile,
+        and reset the camera to fitBounds. That teardown-and-rebuild was the "glitch/delay"
+        on the view switch — it was never a loading state, so a skeleton would have hidden
+        it rather than fixed it.
+
+        Kept mounted and crossfaded, the switch is instant and the camera survives the
+        round trip. The cost is one live GL context while you are reading the list, which
+        is far cheaper than re-initialising the whole map every toggle.
+      */}
       <div className="absolute inset-0">
-        {view === "map" ? (
+        <div
+          aria-hidden={view !== "map"}
+          className="absolute inset-0 transition-opacity duration-[420ms] ease-[cubic-bezier(0.32,0.72,0,1)]"
+          style={{
+            opacity: view === "map" ? 1 : 0,
+            pointerEvents: view === "map" ? "auto" : "none",
+          }}
+        >
           <Map3D
             ref={mapRef}
             reports={visible}
             onSelect={handleSelect}
             showFacilities={showFacilities}
             mode={mapMode}
+            onActiveWard={setActiveWard}
           />
-        ) : (
+        </div>
+
+        <div
+          aria-hidden={view !== "list"}
+          className="absolute inset-0 transition-opacity duration-[420ms] ease-[cubic-bezier(0.32,0.72,0,1)]"
+          style={{
+            opacity: view === "list" ? 1 : 0,
+            pointerEvents: view === "list" ? "auto" : "none",
+          }}
+        >
           <ListView
             reports={visible}
             sort={sort}
             onSort={setSort}
             onSelect={(r) => setSelected(r)}
+            onBackToMap={() => setView("map")}
             lang={lang}
           />
-        )}
+        </div>
       </div>
 
       {view === "map" && (
@@ -142,7 +234,10 @@ export default function Home() {
       )}
 
       {/* ---------------------------------------------------------------- header */}
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-20 px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+      <header
+        ref={headerRef}
+        className="pointer-events-none absolute inset-x-0 top-0 z-20 px-3 pt-[max(0.75rem,env(safe-area-inset-top))]"
+      >
         <Island
           open={islandOpen}
           onToggle={() => setIslandOpen((v) => !v)}
@@ -160,7 +255,15 @@ export default function Home() {
                 </h1>
               </div>
 
-              <div className="flex items-center gap-1.5">
+              {/*
+                MEASURED: at 393px this row has 323px of usable width, but title (128) +
+                gap (12) + the old cluster (221 = lang 83 + Wards 90 + collapse 36) came
+                to 361px. The 38px of overflow was clipped by the island's own
+                overflow-hidden, which sliced 14px off the collapse chevron. Moving the
+                90px Wards button down to the meta row brings this to 265px and leaves
+                real headroom for longer localised labels.
+              */}
+              <div className="flex shrink-0 items-center gap-1.5">
                 <Segmented
                   options={[
                     { value: "en", label: "EN" },
@@ -169,15 +272,6 @@ export default function Home() {
                   value={lang}
                   onChange={(v) => setLang(v as "en" | "kn")}
                 />
-                <button
-                  onClick={() => setShowBoard(true)}
-                  className="group flex h-11 items-center gap-2 rounded-full border border-white/10 bg-white/5 pl-3.5 pr-1.5 text-xs font-medium text-white/80 transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.97]"
-                >
-                  {t("wards")}
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-[11px] transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5">
-                    ↗
-                  </span>
-                </button>
                 <IslandCollapse
                   onClick={() => setIslandOpen(false)}
                   label="Collapse panel"
@@ -238,6 +332,37 @@ export default function Home() {
                   onChange={(v) => setMapMode(v as MapMode)}
                 />
               )}
+            </div>
+
+            {/* Locality search + leaderboard. Wards moved here off the title row. */}
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                onClick={() => setSearchOpen(true)}
+                className="group flex h-11 flex-1 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3.5 text-xs font-medium text-white/60 transition-colors duration-300 hover:text-white/85"
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden>
+                  <circle cx="7" cy="7" r="4.75" stroke="currentColor" strokeWidth="1.4" />
+                  <path
+                    d="M10.5 10.5L14 14"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <span className="truncate">{t("search_placeholder")}</span>
+                <kbd className="ml-auto hidden shrink-0 rounded border border-white/15 px-1.5 py-0.5 font-sans text-[10px] text-white/45 sm:block">
+                  ⌘K
+                </kbd>
+              </button>
+              <button
+                onClick={() => setShowBoard(true)}
+                className="group flex h-11 shrink-0 items-center gap-2 rounded-full border border-white/10 bg-white/5 pl-3.5 pr-1.5 text-xs font-medium text-white/80 transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.97]"
+              >
+                {t("wards")}
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-[11px] transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5">
+                  ↗
+                </span>
+              </button>
             </div>
 
             <div className="mt-3 flex items-center gap-3 text-[11px] text-white/60">
@@ -325,16 +450,57 @@ export default function Home() {
 
       {/* ------------------------------------------------------------ bottom CTA */}
       <div className="absolute inset-x-0 bottom-0 z-20 px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-        <button
+        {/*
+          Name the outlined locality, and say WHICH KIND of shape it is. OSM has a
+          surveyed boundary for only 5 of the 12 localities; the rest fall back to a hull
+          of their own reports. Solid vs dashed here matches the map exactly, so the two
+          can never be confused for one another.
+        */}
+        {view === "map" && activeWard && (
+          <div className="pointer-events-none mx-auto mb-2.5 flex w-full max-w-md items-center gap-2.5 rounded-2xl border border-white/10 bg-black/60 px-3.5 py-2 backdrop-blur-xl">
+            <span
+              aria-hidden
+              className="h-3 w-3 shrink-0 rounded-[3px]"
+              style={{
+                border: `1.5px ${
+                  activeWard.kind === "official" ? "solid" : "dashed"
+                } ${activeWard.kind === "official" ? "#6cb6ff" : "#93a4b8"}`,
+              }}
+            />
+            {/*
+              Two lines, not one. On a 393px screen the single-line version truncated to
+              "Koramang… Case cluster · no official boundary in OpenStre…", which defeats
+              the entire point of saying which kind of shape this is.
+            */}
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[12px] font-medium leading-tight text-white/90">
+                {activeWard.name}
+              </span>
+              <span className="block truncate text-[10.5px] leading-tight text-white/50">
+                {activeWard.kind === "official"
+                  ? t("boundary_official")
+                  : `${t("boundary_cluster")} — ${t("boundary_cluster_note")}`}
+              </span>
+            </span>
+          </div>
+        )}
+
+        <LiquidMetalButton
           onClick={() => setReporting(true)}
-          className="group mx-auto flex w-full max-w-md items-center justify-center gap-3 rounded-full border border-white/15 bg-white py-4 text-[15px] font-semibold text-black shadow-[0_20px_50px_-12px_rgba(255,255,255,0.35)] transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.975]"
+          // No shader cycles burned behind a modal or during a camera flight.
+          paused={reporting || Boolean(selected) || showBoard || searchOpen}
         >
           {t("report_cta")}
-          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-black/10 text-xs transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5 group-hover:-translate-y-[1px]">
-            ↗
-          </span>
-        </button>
+        </LiquidMetalButton>
       </div>
+
+      <CommandPalette
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+        onPick={flyToWard}
+        officialIds={officialIds}
+        lang={lang}
+      />
 
       {reporting && (
         <ReportSheet

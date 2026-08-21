@@ -38,6 +38,15 @@ export const STRINGS: Record<Lang, Dict> = {
     wards: "Wards",
     filter: "filter",
     hide: "hide",
+    // locality search + outline
+    search_locality: "Search a locality",
+    search_placeholder: "Jump to a locality…",
+    search_hint: "↑↓ move · ↵ fly · esc close",
+    search_empty: "No locality matches",
+    search_open: "Search",
+    boundary_official: "Surveyed boundary",
+    boundary_cluster: "Case cluster",
+    boundary_cluster_note: "no official boundary in OpenStreetMap",
     // views
     map_view: "Map",
     list_view: "List",
@@ -115,6 +124,15 @@ export const STRINGS: Record<Lang, Dict> = {
     open_count: "ಬಾಕಿ",
     held_count: "ತಡೆಹಿಡಿದ",
     wards: "ವಾರ್ಡ್‌ಗಳು",
+    // locality search + outline — UNREVIEWED, see the file header
+    search_locality: "ಪ್ರದೇಶ ಹುಡುಕಿ",
+    search_placeholder: "ಪ್ರದೇಶಕ್ಕೆ ಹೋಗಿ…",
+    search_hint: "↑↓ ಆಯ್ಕೆ · ↵ ಹಾರಿ · esc ಮುಚ್ಚಿ",
+    search_empty: "ಯಾವ ಪ್ರದೇಶವೂ ಹೊಂದಿಕೆಯಾಗಲಿಲ್ಲ",
+    search_open: "ಹುಡುಕಿ",
+    boundary_official: "ಅಧಿಕೃತ ಗಡಿ",
+    boundary_cluster: "ಪ್ರಕರಣಗಳ ಗುಂಪು",
+    boundary_cluster_note: "OpenStreetMap ನಲ್ಲಿ ಅಧಿಕೃತ ಗಡಿ ಇಲ್ಲ",
     filter: "ಶೋಧಿಸು",
     hide: "ಮರೆಮಾಡು",
     // views
