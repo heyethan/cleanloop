@@ -30,7 +30,6 @@ import Leaderboard from "@/components/Leaderboard";
 import ListView, { type SortMode } from "@/components/ListView";
 import Island, { IslandCollapse } from "@/components/Island";
 import CommandPalette from "@/components/CommandPalette";
-import LiquidMetalButton from "@/components/LiquidMetalButton";
 import { WARDS } from "@/lib/wards";
 import officialWards from "@/data/wards.json";
 import { useLang } from "@/lib/i18n";
@@ -485,13 +484,15 @@ export default function Home() {
           </div>
         )}
 
-        <LiquidMetalButton
+        <button
           onClick={() => setReporting(true)}
-          // No shader cycles burned behind a modal or during a camera flight.
-          paused={reporting || Boolean(selected) || showBoard || searchOpen}
+          className="group mx-auto flex w-full max-w-md items-center justify-center gap-3 rounded-full border border-white/15 bg-white py-4 text-[15px] font-semibold text-black shadow-[0_20px_50px_-12px_rgba(255,255,255,0.35)] transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.975]"
         >
           {t("report_cta")}
-        </LiquidMetalButton>
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-black/10 text-xs transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:-translate-y-[1px] group-hover:translate-x-0.5">
+            ↗
+          </span>
+        </button>
       </div>
 
       <CommandPalette

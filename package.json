@@ -11,10 +11,11 @@
     "seed": "node --experimental-strip-types --env-file=.env.local scripts/seed.ts",
     "wards": "node --experimental-strip-types scripts/fetch-ward-boundaries.ts",
     "predev": "node ./scripts/copy-maplibre-worker.mjs",
-    "prebuild": "node ./scripts/copy-maplibre-worker.mjs"
+    "prebuild": "node ./scripts/copy-maplibre-worker.mjs",
+    "photos:candidates": "node --experimental-strip-types scripts/curate-photos.ts candidates",
+    "photos:apply": "node --experimental-strip-types --env-file=.env.local scripts/curate-photos.ts apply"
   },
   "dependencies": {
-    "@paper-design/shaders-react": "^0.0.80",
     "@supabase/supabase-js": "^2.112.3",
     "maplibre-gl": "^6.4.1",
     "motion": "^13.1.1",
