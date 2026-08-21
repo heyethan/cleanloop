@@ -89,6 +89,45 @@ export async function findRecurring(
   return null;
 }
 
+/**
+ * The nearest spot that was already VERIFIED CLEAN — a cleanup that did not last.
+ *
+ * Deliberately not `findRecurring` with a different argument. Recurrence asks "is this the
+ * same active problem being reported again", so its 14-day window is right. Durability asks
+ * "did a cleanup we certified hold up", and a spot verified two months ago that refills today
+ * is exactly the case worth catching — a window would hide the most damning examples.
+ *
+ * Same bounding-box prefilter then exact haversine refine as findRecurring; the bbox alone
+ * over-matches at the corners.
+ */
+export async function findVerifiedNearby(
+  db: SupabaseClient,
+  lat: number,
+  lng: number,
+  radiusMetres = RECURRING_RADIUS_METRES,
+): Promise<Report | null> {
+  const dLat = radiusMetres / 111_320;
+  const dLng = radiusMetres / (111_320 * Math.cos((lat * Math.PI) / 180));
+
+  const { data, error } = await db
+    .from("reports")
+    .select("*")
+    .eq("status", "verified_resolved")
+    .gte("lat", lat - dLat)
+    .lte("lat", lat + dLat)
+    .gte("lng", lng - dLng)
+    .lte("lng", lng + dLng)
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(`findVerifiedNearby: ${error.message}`);
+
+  const rows = (data ?? []) as Report[];
+  for (const r of rows) {
+    if (haversineMetres(lat, lng, r.lat, r.lng) <= radiusMetres) return r;
+  }
+  return null;
+}
+
 /** Uploads bytes to the public photo bucket and returns the public URL. */
 export async function uploadPhoto(
   db: SupabaseClient,

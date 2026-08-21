@@ -14,17 +14,20 @@
 
 import { NextResponse } from "next/server";
 import { serverClient } from "@/lib/supabase";
+import { integrityStats, refilledAfterVerification } from "@/lib/durability";
+import type { Report, Resolution } from "@/lib/types";
 
 export async function GET() {
   try {
     const db = serverClient();
 
     const [reports, resolutions, facilities] = await Promise.all([
-      db.from("reports").select("id,status,created_at,is_seed"),
-      db
-        .from("resolutions")
-        .select("report_id,verified_at")
-        .not("verified_at", "is", null),
+      // lat/lng/ward_id are needed for the durability check below, which asks whether a
+      // verified spot later had waste reported within 50m of it.
+      db.from("reports").select("id,status,created_at,is_seed,lat,lng,ward_id"),
+      // Deliberately NOT filtered to verified_at — the integrity number counts the claims
+      // that FAILED, and a failed claim never gets a verified_at.
+      db.from("resolutions").select("report_id,verified_at,ai_verification_result"),
       db.from("waste_facilities").select("id", { count: "exact", head: true }),
     ]);
 
@@ -36,6 +39,8 @@ export async function GET() {
 
     const firstVerified = new Map<string, string>();
     for (const r of verifiedRows) {
+      // The query no longer pre-filters these, so unverified attempts arrive here too.
+      if (!r.verified_at) continue;
       const prev = firstVerified.get(r.report_id as string);
       const at = r.verified_at as string;
       if (!prev || at < prev) firstVerified.set(r.report_id as string, at);
@@ -57,6 +62,16 @@ export async function GET() {
     const claimed = rows.filter((r) => r.status === "claimed").length;
     const verified = rows.filter((r) => r.status === "verified_resolved").length;
 
+    /*
+     * The two numbers no incumbent can publish. Both are measured from rows we already
+     * fetched, so this adds no query and no model call.
+     */
+    const integrity = integrityStats(verifiedRows as unknown as Resolution[]);
+    const durability = refilledAfterVerification(
+      rows as unknown as Report[],
+      verifiedRows as unknown as Resolution[],
+    );
+
     return NextResponse.json({
       total: rows.length,
       open,
@@ -65,6 +80,9 @@ export async function GET() {
       verified_rate: rows.length ? verified / rows.length : null,
       median_days_to_verified: median,
       real_facilities: facilities.count ?? 0,
+      ...integrity,
+      spots_watched: durability.watched,
+      spots_refilled: durability.refilled,
     });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

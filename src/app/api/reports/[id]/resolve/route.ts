@@ -140,6 +140,18 @@ export async function POST(
         verified_at: verifiedAt,
         resolver_session_id: sessionId,
         is_self_resolved: isSelfResolved,
+        /*
+         * This was never set, so it defaulted to false on EVERY real cleanup — a genuine
+         * citizen submission was stored as "not a genuine pair" and the UI labelled it an
+         * example pair. Only seeded rows are meant to carry false.
+         *
+         * Derived from the verdict rather than a separate model field, because VERIFY_PROMPT
+         * already routes "these are not the same place" to `ambiguous` specifically. A
+         * verified_clean or not_clean verdict means the model did assess one location; only
+         * `ambiguous` covers the mismatch case. It also errs strict: a same-place pair the
+         * model could not read is treated as unproven, which is the right bias here.
+         */
+        is_genuine_pair: verification.result !== "ambiguous",
       })
       .select()
       .single();

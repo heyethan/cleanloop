@@ -16,6 +16,7 @@
 import { NextResponse } from "next/server";
 import {
   findRecurring,
+  findVerifiedNearby,
   serverClient,
   uploadPhoto,
   RECURRING_RADIUS_METRES,
@@ -143,8 +144,33 @@ export async function POST(req: Request) {
 
     if (error) throw new Error(error.message);
 
+    /*
+     * DURABLE VERIFICATION — the thing that separates this from a complaint form.
+     *
+     * If waste is reported within 50m of a spot we previously certified clean, that
+     * certification did not hold. Reopen the old case rather than leaving a green pin over
+     * a live dump: a resolution rate that counts cleanups which silently refilled is the
+     * same self-congratulatory number every other civic app publishes.
+     *
+     * Done after the insert so a failure here cannot lose the citizen's report.
+     */
+    let refill: { reopened_report_id: string; ward_id: string | null } | null = null;
+    const previouslyVerified = await findVerifiedNearby(db, lat, lng);
+    if (previouslyVerified) {
+      const { error: reopenErr } = await db
+        .from("reports")
+        .update({ status: "open" })
+        .eq("id", previouslyVerified.id);
+      if (reopenErr) throw new Error(`reopen: ${reopenErr.message}`);
+      refill = {
+        reopened_report_id: previouslyVerified.id,
+        ward_id: previouslyVerified.ward_id,
+      };
+    }
+
     return NextResponse.json({
       report: data,
+      refill,
       ai_is_live: ai.isLive,
       recurring: prior
         ? {

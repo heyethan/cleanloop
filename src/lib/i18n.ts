@@ -119,6 +119,12 @@ export const STRINGS: Record<Lang, Dict> = {
     self_resolved_flag: "Reported and cleaned by the same person.",
     not_genuine_pair:
       "Example pair — two different photos, not one spot before and after.",
+    not_same_place:
+      "These two photos do not appear to show the same place, so this cleanup is unproven.",
+    claims_rejected: "cleanup claims rejected",
+    spots_refilled: "cleaned spots that refilled",
+    durability_note:
+      "We re-check every spot we certify. A cleanup that refills stops counting as resolved.",
     // leaderboard
     accountability: "Accountability",
     ward_performance: "Ward performance",
@@ -220,6 +226,12 @@ export const STRINGS: Record<Lang, Dict> = {
     self_resolved_flag: "ವರದಿ ಮಾಡಿದ ಅದೇ ವ್ಯಕ್ತಿಯಿಂದ ಸ್ವಚ್ಛಗೊಳಿಸಲಾಗಿದೆ.",
     not_genuine_pair:
       "ಉದಾಹರಣೆ ಜೋಡಿ — ಎರಡು ಬೇರೆ ಫೋಟೋಗಳು, ಒಂದೇ ಸ್ಥಳದ ಮೊದಲು-ನಂತರ ಅಲ್ಲ.",
+    not_same_place:
+      "ಈ ಎರಡು ಫೋಟೋಗಳು ಒಂದೇ ಸ್ಥಳವನ್ನು ತೋರಿಸುವಂತೆ ಕಾಣುತ್ತಿಲ್ಲ, ಆದ್ದರಿಂದ ಈ ಸ್ವಚ್ಛತೆ ಸಾಬೀತಾಗಿಲ್ಲ.",
+    claims_rejected: "ತಿರಸ್ಕೃತ ಸ್ವಚ್ಛತೆ ಹಕ್ಕುಗಳು",
+    spots_refilled: "ಮತ್ತೆ ಕಸ ತುಂಬಿದ ಸ್ಥಳಗಳು",
+    durability_note:
+      "ನಾವು ದೃಢೀಕರಿಸಿದ ಪ್ರತಿ ಸ್ಥಳವನ್ನು ಮತ್ತೆ ಪರಿಶೀಲಿಸುತ್ತೇವೆ. ಮತ್ತೆ ಕಸ ತುಂಬಿದರೆ ಅದು ಬಗೆಹರಿದದ್ದು ಎಂದು ಪರಿಗಣಿಸಲ್ಪಡುವುದಿಲ್ಲ.",
     // leaderboard
     accountability: "ಜವಾಬ್ದಾರಿ",
     ward_performance: "ವಾರ್ಡ್ ಕಾರ್ಯಕ್ಷಮತೆ",

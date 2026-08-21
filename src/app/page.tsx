@@ -54,6 +54,12 @@ interface Stats {
   verified_rate: number | null;
   median_days_to_verified: number | null;
   real_facilities: number;
+  /* durable verification — see src/lib/durability.ts */
+  claims_total: number;
+  claims_rejected: number;
+  rejection_rate: number | null;
+  spots_watched: number;
+  spots_refilled: number;
 }
 
 type View = "map" | "list";
@@ -360,6 +366,40 @@ export default function Home() {
                 </div>
               </div>
             </div>
+
+            {/*
+              DURABLE VERIFICATION — the two claims no incumbent can make.
+              Rejected claims: nobody else publishes a rejection rate because nobody else
+              checks whether the "after" photo is the same place. Spots watched: a closed
+              case that quietly refilled was never resolved, and a resolution rate that
+              ignores that is the self-congratulatory number every civic app already prints.
+              Deliberately shows 0 refilled when that is the truth rather than inventing one.
+            */}
+            {stats && stats.claims_total > 0 && (
+              <div className="mt-3.5 grid grid-cols-2 gap-2">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2.5">
+                  <div className="text-base font-medium leading-none tabular-nums text-white/90">
+                    {stats.claims_rejected}
+                    <span className="text-white/40"> / {stats.claims_total}</span>
+                  </div>
+                  <div className="mt-1 text-[11px] leading-tight text-white/60">
+                    {t("claims_rejected")}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2.5">
+                  <div className="text-base font-medium leading-none tabular-nums text-white/90">
+                    {stats.spots_refilled}
+                    <span className="text-white/40"> / {stats.spots_watched}</span>
+                  </div>
+                  <div className="mt-1 text-[11px] leading-tight text-white/60">
+                    {t("spots_refilled")}
+                  </div>
+                </div>
+                <p className="col-span-2 -mt-0.5 text-[11px] leading-relaxed text-white/45">
+                  {t("durability_note")}
+                </p>
+              </div>
+            )}
 
             {/* view + dimension switches */}
             <div className="mt-3.5 flex items-center gap-2">

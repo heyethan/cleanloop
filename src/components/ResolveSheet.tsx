@@ -223,7 +223,7 @@ export default function ResolveSheet({
             cleanliness is precisely the unaccountable "we fixed it" the product exists
             to replace.
           */
-          <ExistingProof reportId={report.id} lang={lang} />
+          <ExistingProof reportId={report.id} lang={lang} isSeed={report.is_seed} />
         ) : (
           <>
             <label className="block cursor-pointer">
@@ -320,7 +320,15 @@ interface StoredResolution {
  * row per pin and most pins are still open, so joining a resolution onto every one of
  * them would be paying for the rare case on every request.
  */
-function ExistingProof({ reportId, lang }: { reportId: string; lang: Lang }) {
+function ExistingProof({
+  reportId,
+  lang,
+  isSeed,
+}: {
+  reportId: string;
+  lang: Lang;
+  isSeed: boolean;
+}) {
   const t = (k: string, v?: Record<string, string | number>) => translate(lang, k, v);
   const [res, setRes] = useState<StoredResolution | null>(null);
   const [state, setState] = useState<"loading" | "ok" | "missing">("loading");
@@ -409,8 +417,16 @@ function ExistingProof({ reportId, lang }: { reportId: string; lang: Lang }) {
         </div>
       )}
 
-      {/* Seeded pairs are two different photographs, and the UI must keep saying so. */}
-      {!res.is_genuine_pair && <Notice>{t("not_genuine_pair")}</Notice>}
+      {/*
+        One flag, two very different situations, and they must not share a sentence.
+        A seeded row is two unrelated photographs used as sample data — saying so is honest.
+        A real submission that failed the same-place check is a cleanup nobody can prove, which
+        is a finding about that submission, not a note about our demo data. Calling a citizen's
+        genuine report an "example pair" was the bug this replaces.
+      */}
+      {!res.is_genuine_pair && (
+        <Notice>{isSeed ? t("not_genuine_pair") : t("not_same_place")}</Notice>
+      )}
     </div>
   );
 }
