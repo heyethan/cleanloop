@@ -18,7 +18,8 @@ import { serverClient, uploadPhoto } from "@/lib/supabase";
 import { getProvider, statusFromVerification } from "@/lib/ai";
 import type { Report } from "@/lib/types";
 
-const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
+/** See the note in ../../route.ts — the real platform ceiling is ~4.5 MB, not 10. */
+const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
 const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp"];
 
 /**

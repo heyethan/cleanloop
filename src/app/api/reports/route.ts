@@ -24,8 +24,16 @@ import {
 import { getProvider } from "@/lib/ai";
 import { isInBengaluru, nearestWard } from "@/lib/wards";
 
-/** Photos come off a phone camera; cap to keep uploads and model calls sane. */
-const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
+/**
+ * Photos come off a phone camera; cap to keep uploads and model calls sane.
+ *
+ * This was 10 MB, which was fiction: the platform rejects a body over ~4.5 MB with a
+ * plaintext 413 before this function is invoked, so anything between 4.5 and 10 MB could
+ * never reach the check below. Measured on production 2026-08-21 — 3 MB arrived here,
+ * 5 MB did not. The client downscales before upload (src/lib/photo.ts); this is the
+ * backstop for anything that bypasses it.
+ */
+const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
 const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp"];
 
 export async function GET() {

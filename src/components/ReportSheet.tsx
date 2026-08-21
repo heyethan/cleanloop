@@ -23,6 +23,7 @@ import { getSessionId } from "@/lib/session";
 import Sheet from "@/components/Sheet";
 import { translate, type Lang } from "@/lib/i18n";
 import { isInBengaluru, nearestWard } from "@/lib/wards";
+import { downscalePhoto, readJson } from "@/lib/photo";
 import type { Report } from "@/lib/types";
 import { ThinkingOrb } from "thinking-orbs";
 
@@ -107,14 +108,21 @@ export default function ReportSheet({
     setMessage(null);
     try {
       const fd = new FormData();
-      fd.set("photo", file);
+      /*
+       * Downscale here rather than at pick time so the preview stays instant and the
+       * work happens while the progress UI is already on screen.
+       */
+      fd.set("photo", await downscalePhoto(file));
       fd.set("lat", String(coords.lat));
       fd.set("lng", String(coords.lng));
       fd.set("session_id", getSessionId());
 
       const res = await fetch("/api/reports", { method: "POST", body: fd });
-      const json = await res.json();
-      if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`);
+      const json = await readJson<{
+        report: Report;
+        ai_is_live: boolean;
+        recurring: unknown;
+      }>(res);
 
       setResult(json.report);
       setAiIsLive(json.ai_is_live);

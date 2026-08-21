@@ -24,6 +24,7 @@ import Sheet from "@/components/Sheet";
 import { translate, type Lang } from "@/lib/i18n";
 import type { Report, ReportStatus, Verification } from "@/lib/types";
 import { ThinkingOrb } from "thinking-orbs";
+import { downscalePhoto, readJson } from "@/lib/photo";
 
 const WORK_STEPS = [
   "Uploading your photo",
@@ -76,14 +77,19 @@ export default function ResolveSheet({
     setError(null);
     try {
       const fd = new FormData();
-      fd.set("photo", file);
+      // Same 413 trap as the report flow — an "after" photo is just as likely to be 8 MB.
+      fd.set("photo", await downscalePhoto(file));
       fd.set("session_id", getSessionId());
       const res = await fetch(`/api/reports/${report.id}/resolve`, {
         method: "POST",
         body: fd,
       });
-      const json = await res.json();
-      if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`);
+      const json = await readJson<{
+        verification: Verification;
+        status: ReportStatus;
+        is_self_resolved: boolean;
+        ai_is_live: boolean;
+      }>(res);
 
       setVerification(json.verification);
       setStatus(json.status);
