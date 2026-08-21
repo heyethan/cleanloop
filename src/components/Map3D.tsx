@@ -98,6 +98,39 @@ const OVERVIEW_PITCH = 35;
  * one-line change to iterate on, which is what was asked for.
  */
 
+/**
+ * How much wider than the city itself the opening frame is allowed to be.
+ * 1.0 would crop the city edges; a little slack keeps all of Bengaluru on screen
+ * while cutting the surrounding districts out of the shot.
+ */
+const MAX_SPILL = 1.08;
+
+/**
+ * Trim horizontal spill after a fitBounds.
+ *
+ * fitBounds CONTAINS a box: it picks the zoom that fits both axes, so the
+ * non-constraining axis over-reveals. On a 1440x900 window the height binds, and the
+ * opening frame showed Hoskote, Nelamangala and Doddaballapur — towns 30-40km outside
+ * Bengaluru — purely as horizontal spill.
+ *
+ * This is MEASURED, not derived. The obvious closed form (Web Mercator: zoom where
+ * spanLng fills widthPx) is wrong here because the camera is pitched: at pitch 35 that
+ * formula produced 25.9km of visible width against a 41.2km city, cropping a third of
+ * Bengaluru. Reading the map's own reported bounds and correcting by the observed ratio
+ * sidesteps having to model the tilted frustum at all.
+ *
+ * Only ever zooms IN, so a viewport that already frames the city tightly is untouched.
+ */
+function trimSpill(m: MLMap) {
+  const target = (BENGALURU_BOUNDS[1][0] - BENGALURU_BOUNDS[0][0]) * MAX_SPILL;
+  for (let pass = 0; pass < 2; pass++) {
+    const b = m.getBounds();
+    const shown = b.getEast() - b.getWest();
+    if (shown <= target) return;
+    m.setZoom(m.getZoom() + Math.log2(shown / target));
+  }
+}
+
 /** Zoom the camera settles at when arriving in a locality. */
 const WARD_ZOOM = 14.2;
 /** Camera tilt on arrival — steeper than the city overview so pillars read as height. */
@@ -352,12 +385,16 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
     resetView() {
       stopOrbit();
       setActiveWard(null);
-      map.current?.fitBounds(BENGALURU_BOUNDS, {
+      const m = map.current;
+      if (!m) return;
+      m.fitBounds(BENGALURU_BOUNDS, {
         padding: { top: 200, bottom: 90, left: 24, right: 24 },
         pitch: OVERVIEW_PITCH,
         bearing: -18,
         duration: 1400,
       });
+      // Same spill trim as the opening camera, applied once the flight has landed.
+      m.once("moveend", () => trimSpill(m));
     },
   }));
 
@@ -424,6 +461,8 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
         bearing: -18,
         duration: 0,
       });
+      // Then trim spill so a wide window doesn't reveal neighbouring districts.
+      trimSpill(m);
 
       // Dark-ify the vector style so the data reads as the bright layer, not the map.
       for (const layer of m.getStyle().layers ?? []) {

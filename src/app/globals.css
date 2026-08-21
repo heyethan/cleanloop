@@ -30,9 +30,60 @@ body {
 .maplibregl-ctrl-bottom-right {
   margin-bottom: 5.5rem;
 }
+/*
+ * Both the compact and expanded attribution variants. Only `.maplibregl-compact` was
+ * themed before, so at widths where MapLibre renders the EXPANDED bar it fell back to
+ * the library's white default — a bright strip across the bottom of a dark map. The
+ * taller hit box below made that more conspicuous, so theme both states.
+ */
+.maplibregl-ctrl-attrib,
 .maplibregl-ctrl-attrib.maplibregl-compact {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(10, 13, 18, 0.72) !important;
   color: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  border-radius: 999px;
+}
+.maplibregl-ctrl-attrib a { color: rgba(255, 255, 255, 0.72) !important; }
+.maplibregl-ctrl-attrib-button { filter: invert(1); opacity: 0.7; }
+/*
+ * Attribution links measured 77x14, 91x14 and 85x14 — far under the 44px touch
+ * floor, on links we are legally obliged to keep tappable. Padding is the only
+ * lever here: MapLibre owns this markup, so the anchors get vertical padding and
+ * a bigger hit box without changing the bar's visual weight.
+ */
+.maplibregl-ctrl-attrib.maplibregl-compact a {
+  display: inline-block;
+  position: relative;
+  padding: 0.5rem 0.15rem;
+  line-height: 1;
+}
+/*
+ * Padding alone only got these to 28px tall; reaching 44 that way would turn the
+ * attribution strip into a heavy 44px bar across the bottom of the map. Instead
+ * the visible size stays put and an invisible pseudo-element extends the hit box
+ * vertically — the target is 44px, the ink is not.
+ */
+.maplibregl-ctrl-attrib.maplibregl-compact a::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 44px;
+  transform: translateY(-50%);
+}
+
+/*
+ * Focus was falling back to Chrome's default blue ring (outline-style computed
+ * to `none`, leaving only the UA box-shadow) — functional, but a stock blue halo
+ * on dark glass reads as unstyled. Keyboard users deserve the same craft as
+ * pointer users, so this is an explicit, on-brand ring.
+ *
+ * :focus-visible, not :focus — a mouse press must not leave a ring behind.
+ */
+:focus-visible {
+  outline: 2px solid #6cb6ff;
+  outline-offset: 2px;
 }
 .maplibregl-ctrl-group {
   background: rgba(10, 13, 18, 0.7) !important;
@@ -41,6 +92,16 @@ body {
 }
 .maplibregl-ctrl-group button + button { border-top-color: rgba(255,255,255,0.1); }
 .maplibregl-ctrl-group button span { filter: invert(1); }
+/*
+ * MapLibre ships 29x29 control buttons. Zoom and compass are the map's only
+ * non-gestural controls, and on a phone 29px is a miss waiting to happen — raise
+ * them to the 44px floor.
+ */
+/* !important because MapLibre's own stylesheet loads after this one and hard-sets 29px. */
+.maplibregl-ctrl-group button {
+  width: 44px !important;
+  height: 44px !important;
+}
 
 /* Bottom sheets rise with weighted physics rather than snapping into place. */
 @keyframes sheet-rise {

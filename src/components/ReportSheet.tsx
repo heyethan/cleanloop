@@ -22,6 +22,7 @@ import { useEffect, useState } from "react";
 import { getSessionId } from "@/lib/session";
 import Sheet from "@/components/Sheet";
 import { translate, type Lang } from "@/lib/i18n";
+import { nearestWard } from "@/lib/wards";
 import type { Report } from "@/lib/types";
 
 type Stage = "idle" | "locating" | "uploading" | "done" | "error";
@@ -29,10 +30,12 @@ type Stage = "idle" | "locating" | "uploading" | "done" | "error";
 /** Named steps for the Labor Illusion. Timings approximate the real pipeline. */
 const WORK_STEPS = [
   "Uploading photo",
-  "Classifying waste type",
-  "Scoring severity",
-  "Checking 14-day history nearby",
-  "Drafting civic complaint",
+  "Identifying the waste",
+  "Rating how bad it is",
+  // Was "Checking 14-day history nearby" — 14 days is our dedupe rule, not the user's
+  // concern. They care that we noticed it keeps happening.
+  "Checking if this spot repeats",
+  "Writing the complaint",
 ];
 
 export default function ReportSheet({
@@ -125,6 +128,18 @@ export default function ReportSheet({
 
   const canSubmit = Boolean(file && coords) && stage !== "uploading";
 
+  /*
+   * A disabled button with no stated reason makes the user hunt for what they missed.
+   * Name the single next thing instead — photo first, since it is step 1.
+   */
+  const blockedReason = !file ? t("needs_photo") : !coords ? t("needs_location") : null;
+
+  /* Desktop has no camera; don't promise one. */
+  const [hasCamera, setHasCamera] = useState(true);
+  useEffect(() => {
+    setHasCamera(window.matchMedia("(pointer: coarse)").matches);
+  }, []);
+
   return (
     <Sheet
       eyebrow={stage === "done" ? t("reported") : t("new_report")}
@@ -170,9 +185,13 @@ export default function ReportSheet({
                 value={result.complaint_text}
                 className="h-28 w-full resize-none rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-xs leading-relaxed text-white/80 outline-none"
               />
+              {/*
+                Was "BBMP integration is a partnership, not a build" — a sentence about
+                our roadmap, on a screen where someone is trying to file a complaint.
+                The actionable half is all that remains.
+              */}
               <p className="mt-1.5 text-[11px] text-white/55">
-                Not filed automatically — BBMP integration is a partnership, not a
-                build. Copy this into the official channel.
+                Not sent automatically — copy this into the BBMP complaint channel.
               </p>
             </div>
           )}
@@ -209,7 +228,14 @@ export default function ReportSheet({
                 <div className="flex h-32 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-white/15 bg-white/[0.03] text-center">
                   <span className="text-xl">📷</span>
                   <span className="text-sm text-white/70">{t("take_photo")}</span>
-                  <span className="text-[11px] text-white/55">{t("camera_opens")}</span>
+                  {/*
+                    "Camera opens directly" was shown on desktop, which has no camera —
+                    a promise the device cannot keep. Coarse pointer is the honest proxy
+                    for "this is a phone".
+                  */}
+                  <span className="text-[11px] text-white/55">
+                    {hasCamera ? t("camera_opens") : t("choose_file")}
+                  </span>
                 </div>
               )}
             </label>
@@ -220,8 +246,14 @@ export default function ReportSheet({
             <StepLabel n={2} label={t("location")} done={Boolean(coords)} />
             {coords ? (
               <div className="mt-2 flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.04] px-3.5 py-3">
-                <span className="font-mono text-xs text-white/75">
-                  {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
+                {/*
+                  Was raw monospace "12.93573, 77.62408". Nobody verifies their own
+                  location by reading five decimal places of latitude — they recognise
+                  the place name. The coordinates are still what gets submitted; they
+                  just stopped being the thing on screen.
+                */}
+                <span className="truncate text-xs text-white/75">
+                  {nearestWard(coords.lat, coords.lng)?.name ?? t("location_set")}
                 </span>
                 <button
                   onClick={() => {
@@ -306,10 +338,20 @@ export default function ReportSheet({
           <button
             onClick={submit}
             disabled={!canSubmit}
-            className="w-full rounded-full bg-white py-3.5 text-[15px] font-semibold text-black transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.975] disabled:bg-white/25 disabled:text-white/50"
+            className="w-full rounded-full bg-white py-3.5 text-[15px] font-semibold text-black transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.975] disabled:bg-white/25 disabled:text-white/60"
           >
             {stage === "uploading" ? t("analysing") : t("submit_report")}
           </button>
+
+          {/*
+            Say why the button is dead, and — when it isn't — say what submitting will
+            actually do. Both claims are literally true: the report goes straight onto
+            the public map, and the ward leaderboard is computed from days-to-verified.
+            Deliberately does NOT claim it reaches BBMP, because nothing forwards it.
+          */}
+          <p className="mt-2 text-center text-[11px] leading-relaxed text-white/60">
+            {blockedReason ?? t("after_submit")}
+          </p>
         </div>
       )}
     </Sheet>
@@ -321,7 +363,7 @@ function StepLabel({ n, label, done }: { n: number; label: string; done: boolean
     <div className="flex items-center gap-2">
       <span
         className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-medium ${
-          done ? "bg-[#22c98a] text-black" : "bg-white/10 text-white/50"
+          done ? "bg-[#22c98a] text-black" : "bg-white/10 text-white/60"
         }`}
       >
         {done ? "✓" : n}

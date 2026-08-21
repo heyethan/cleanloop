@@ -114,7 +114,7 @@ export default function Island({
                   height="12"
                   viewBox="0 0 12 12"
                   fill="none"
-                  className="ml-0.5 shrink-0 text-white/50"
+                  className="ml-0.5 shrink-0 text-white/60"
                   aria-hidden
                 >
                   <path

@@ -22,7 +22,8 @@
  */
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useReports, filterReports } from "@/lib/useReports";
 import ReportSheet from "@/components/ReportSheet";
 import ResolveSheet from "@/components/ResolveSheet";
@@ -40,7 +41,7 @@ const Map3D = dynamic(() => import("@/components/Map3D"), {
   ssr: false,
   loading: () => (
     <div className="flex h-full w-full items-center justify-center bg-[#070a0f]">
-      <div className="text-xs uppercase tracking-[0.25em] text-white/50">loading city</div>
+      <div className="text-xs uppercase tracking-[0.25em] text-white/60">loading city</div>
     </div>
   ),
 });
@@ -129,9 +130,43 @@ export default function Home() {
    * so entering list view collapses it. ListView carries its own "back to map" control
    * so this never costs a round trip through the HUD.
    */
+  const reduceMotion = useReducedMotion();
   useEffect(() => {
-    if (view === "list") setIslandOpen(false);
-  }, [view]);
+    if (view !== "list") return;
+    /*
+     * Wait for the segmented thumb to finish travelling before collapsing.
+     *
+     * Collapsing immediately unmounts the control mid-animation, so the one toggle the
+     * slide matters most on — Map to List — was the one place you never saw it. The
+     * delay is the spring's duration plus a little, so the two motions read as a
+     * sequence (thumb lands, then the panel folds) rather than a collision.
+     */
+    const delay = reduceMotion ? 0 : SEG_SPRING.duration * 1000 + 60;
+    const timer = window.setTimeout(() => setIslandOpen(false), delay);
+    return () => window.clearTimeout(timer);
+  }, [view, reduceMotion]);
+
+  /*
+   * DESKTOP IS NOT A TALL PHONE.
+   *
+   * Measured at 1440x900, every control sat in a 448px column and 69% of the viewport
+   * was empty black — the mobile layout stretched, not a desktop layout. On a wide
+   * screen the map and the list can coexist, so `wide` switches the composition from
+   * "one column, crossfade between map and list" to "list rail on the left, map always
+   * visible on the right". The phone layout is untouched.
+   */
+  const [wide, setWide] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const sync = () => setWide(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  /** How many filters are narrowing the map right now — surfaced on the filter button. */
+  const activeFilterCount =
+    (ward ? 1 : 0) + (status ? 1 : 0) + (severity !== null ? 1 : 0);
 
   const flyToWard = useCallback((wardId: string) => {
     setView("map");
@@ -189,11 +224,12 @@ export default function Home() {
       */}
       <div className="absolute inset-0">
         <div
-          aria-hidden={view !== "map"}
+          aria-hidden={view !== "map" && !wide}
           className="absolute inset-0 transition-opacity duration-[420ms] ease-[cubic-bezier(0.32,0.72,0,1)]"
           style={{
-            opacity: view === "map" ? 1 : 0,
-            pointerEvents: view === "map" ? "auto" : "none",
+            // On a wide screen the map never hides — the list docks beside it.
+            opacity: wide || view === "map" ? 1 : 0,
+            pointerEvents: wide || view === "map" ? "auto" : "none",
           }}
         >
           <Map3D
@@ -208,7 +244,11 @@ export default function Home() {
 
         <div
           aria-hidden={view !== "list"}
-          className="absolute inset-0 transition-opacity duration-[420ms] ease-[cubic-bezier(0.32,0.72,0,1)]"
+          className={`absolute inset-y-0 left-0 transition-opacity duration-[420ms] ease-[cubic-bezier(0.32,0.72,0,1)] ${
+            wide
+              ? "w-[440px] border-r border-white/10 shadow-[8px_0_40px_-12px_rgba(0,0,0,0.9)]"
+              : "right-0"
+          }`}
           style={{
             opacity: view === "list" ? 1 : 0,
             pointerEvents: view === "list" ? "auto" : "none",
@@ -235,7 +275,7 @@ export default function Home() {
       {/* ---------------------------------------------------------------- header */}
       <header
         ref={headerRef}
-        className="pointer-events-none absolute inset-x-0 top-0 z-20 px-3 pt-[max(0.75rem,env(safe-area-inset-top))]"
+        className="pointer-events-none absolute top-0 z-30 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] left-0 right-0 lg:right-auto lg:w-[440px]"
       >
         <Island
           open={islandOpen}
@@ -265,8 +305,10 @@ export default function Home() {
               <div className="flex shrink-0 items-center gap-1.5">
                 <Segmented
                   options={[
+                    // Symmetric labels: "EN" against a lone "ಕ" read as a full word
+                    // against a fragment. Both are now the language's own short name.
                     { value: "en", label: "EN" },
-                    { value: "kn", label: "ಕ" },
+                    { value: "kn", label: "ಕನ್ನಡ" },
                   ]}
                   value={lang}
                   onChange={(v) => setLang(v as "en" | "kn")}
@@ -278,7 +320,16 @@ export default function Home() {
               </div>
             </div>
 
-            {/* ANCHOR: verified first, biggest. Never lead with complaint volume. */}
+            {/*
+              ANCHOR: verified first, biggest. Never lead with complaint volume.
+
+              SERIAL POSITION: first and last are the two positions people retain, so
+              the weakest number must not sit in either. "37% closure rate" was last —
+              a sub-half figure in the most memorable slot, reading as a grade rather
+              than a status. It moves to the middle and the median-days figure (a
+              genuinely strong number) takes the closing position. Same three facts,
+              nothing hidden, better ordered.
+            */}
             <div className="mt-4 flex items-end gap-5">
               <div>
                 <div className="text-[34px] font-semibold leading-none tracking-tight text-[#22c98a] tabular-nums">
@@ -291,21 +342,21 @@ export default function Home() {
               <div className="mb-0.5 h-9 w-px bg-white/10" />
               <div>
                 <div className="text-lg font-medium leading-none tabular-nums text-white/85">
+                  {stats ? `${Math.round((stats.verified_rate ?? 0) * 100)}%` : "—"}
+                </div>
+                <div className="mt-1 text-[11px] leading-tight text-white/60">
+                  {t("closure_rate")}
+                </div>
+              </div>
+              <div className="mb-0.5 h-9 w-px bg-white/10" />
+              <div>
+                <div className="text-lg font-medium leading-none tabular-nums text-white/85">
                   {stats?.median_days_to_verified != null
                     ? `${stats.median_days_to_verified.toFixed(1)}d`
                     : "—"}
                 </div>
                 <div className="mt-1 text-[11px] leading-tight text-white/60">
                   {t("median_to_verify")}
-                </div>
-              </div>
-              <div className="mb-0.5 h-9 w-px bg-white/10" />
-              <div>
-                <div className="text-lg font-medium leading-none tabular-nums text-white/85">
-                  {stats ? `${Math.round((stats.verified_rate ?? 0) * 100)}%` : "—"}
-                </div>
-                <div className="mt-1 text-[11px] leading-tight text-white/60">
-                  {t("closure_rate")}
                 </div>
               </div>
             </div>
@@ -322,14 +373,19 @@ export default function Home() {
                 grow
               />
               {view === "map" && (
-                <Segmented
-                  options={[
-                    { value: "3d", label: t("dim_3d") },
-                    { value: "2d", label: t("dim_2d") },
-                  ]}
-                  value={mapMode}
-                  onChange={(v) => setMapMode(v as MapMode)}
-                />
+                // Fixed 90px so this column matches Wards and filter exactly, instead
+                // of sizing to its own content and landing 2px wide of them.
+                <div className="w-[90px] shrink-0">
+                  <Segmented
+                    options={[
+                      { value: "3d", label: t("dim_3d") },
+                      { value: "2d", label: t("dim_2d") },
+                    ]}
+                    value={mapMode}
+                    onChange={(v) => setMapMode(v as MapMode)}
+                    grow
+                  />
+                </div>
               )}
             </div>
 
@@ -349,7 +405,7 @@ export default function Home() {
                   />
                 </svg>
                 <span className="truncate">{t("search_placeholder")}</span>
-                <kbd className="ml-auto hidden shrink-0 rounded border border-white/15 px-1.5 py-0.5 font-sans text-[10px] text-white/45 sm:block">
+                <kbd className="ml-auto hidden shrink-0 rounded border border-white/15 px-1.5 py-0.5 font-sans text-[10px] text-white/60 sm:block">
                   ⌘K
                 </kbd>
               </button>
@@ -364,14 +420,66 @@ export default function Home() {
               </button>
             </div>
 
-            <div className="mt-3 flex items-center gap-3 text-[11px] text-white/60">
-              <Dot colour="#ff3b30" label={`${stats?.open ?? 0} ${t("open_count")}`} />
-              <Dot colour="#ffb020" label={`${stats?.claimed ?? 0} ${t("held_count")}`} />
+            {/*
+              GRID SYMMETRY. Measured at 393px, the two rows above this one are both
+              [bordered wide control ending x=258/260] + [8px gap] + [~90px control
+              ending x=358]. This row broke the pattern twice: the legend was bare text
+              where its neighbours have bordered containers, and the filter button was
+              70px against their 90px — so it read as a stray pill dropped onto a line of
+              text. The legend now sits in a matching container and the button matches
+              its column width, giving all three rows one grid.
+            */}
+            <div className="mt-3 flex items-center gap-2">
+              {/*
+                This row is now the map's colour KEY, not just two counts.
+                Red/amber/green carried the entire status model and were explained
+                nowhere — you had to infer that a green pillar meant verified. Adding
+                the third swatch costs one item and turns an incidental stat strip into
+                the legend, which is why it lives next to the map rather than in a
+                separate panel nobody would open.
+              */}
+              <div className="flex h-11 min-w-0 flex-1 items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.04] px-3 text-[11px] text-white/60">
+                <Dot colour="#ff3b30" label={`${stats?.open ?? 0} ${t("open_count")}`} />
+                <Dot colour="#ffb020" label={`${stats?.claimed ?? 0} ${t("held_count")}`} />
+                <Dot
+                  colour="#22c98a"
+                  label={`${stats?.verified ?? 0} ${t("verified_short")}`}
+                />
+              </div>
+              {/*
+                Was bare lowercase text with no border — indistinguishable from a label,
+                so the filters behind it were effectively undiscoverable. Now a real
+                control with a chevron that states its own direction, and it reports how
+                many filters are active so "why am I seeing so few pins?" is answerable
+                without opening it.
+              */}
               <button
                 onClick={() => setShowFilters((v) => !v)}
-                className="ml-auto -my-3 flex h-11 min-w-11 items-center justify-center px-3 text-[11px] text-white/60 underline-offset-4 transition-colors hover:text-white/80"
+                aria-expanded={showFilters}
+                className="flex h-11 w-[90px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/12 bg-white/[0.06] text-[11px] font-medium text-white/75 transition-colors duration-300 hover:text-white active:bg-white/10"
               >
                 {showFilters ? t("hide") : t("filter")}
+                {activeFilterCount > 0 && (
+                  <span className="rounded-full bg-[#3f8cff]/25 px-1.5 text-[10px] tabular-nums text-[#9dc8ff]">
+                    {activeFilterCount}
+                  </span>
+                )}
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 12 12"
+                  fill="none"
+                  aria-hidden
+                  className={`transition-transform duration-300 ${showFilters ? "rotate-180" : ""}`}
+                >
+                  <path
+                    d="M2.5 4.5L6 8l3.5-3.5"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
               </button>
             </div>
 
@@ -448,38 +556,47 @@ export default function Home() {
       </header>
 
       {/* ------------------------------------------------------------ bottom CTA */}
-      <div className="absolute inset-x-0 bottom-0 z-20 px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+      {/*
+        Scroll-edge fade for the list. Rows pass UNDER the floating CTA by design —
+        measured, the last row still clears it by 82px at full scroll, so nothing is
+        unreachable — but they were being hard-cut by the pill's edge. A short gradient
+        lets content dissolve into the chrome instead of colliding with it.
+      */}
+      {view === "list" && (
+        <div
+          className={`pointer-events-none absolute bottom-0 left-0 z-10 h-32 bg-gradient-to-t from-[#070a0f] via-[#070a0f]/80 to-transparent ${
+            wide ? "w-[440px]" : "right-0"
+          }`}
+        />
+      )}
+
+      <div className="absolute bottom-0 left-0 right-0 z-30 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] lg:right-auto lg:w-[440px]">
         {/*
           Name the outlined locality, and say WHICH KIND of shape it is. OSM has a
           surveyed boundary for only 5 of the 12 localities; the rest fall back to a hull
           of their own reports. Solid vs dashed here matches the map exactly, so the two
           can never be confused for one another.
         */}
+        {/*
+          Just the locality name. This used to read "Koramangala / Case cluster — no
+          official boundary in OpenStreetMap": a sentence about where our geometry came
+          from, floating over the map, aimed at nobody. Someone who taps a locality wants
+          to know which one they tapped. The outline itself still renders solid or dashed,
+          so the distinction is preserved for anyone who cares, without narrating it.
+        */}
         {view === "map" && activeWard && (
-          <div className="pointer-events-none mx-auto mb-2.5 flex w-full max-w-md items-center gap-2.5 rounded-2xl border border-white/10 bg-black/60 px-3.5 py-2 backdrop-blur-xl">
+          <div className="pointer-events-none mx-auto mb-2.5 flex w-fit max-w-full items-center gap-2 rounded-full border border-white/10 bg-black/60 px-3.5 py-1.5 backdrop-blur-xl">
             <span
               aria-hidden
-              className="h-3 w-3 shrink-0 rounded-[3px]"
+              className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
               style={{
                 border: `1.5px ${
                   activeWard.kind === "official" ? "solid" : "dashed"
                 } ${activeWard.kind === "official" ? "#6cb6ff" : "#93a4b8"}`,
               }}
             />
-            {/*
-              Two lines, not one. On a 393px screen the single-line version truncated to
-              "Koramang… Case cluster · no official boundary in OpenStre…", which defeats
-              the entire point of saying which kind of shape this is.
-            */}
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[12px] font-medium leading-tight text-white/90">
-                {activeWard.name}
-              </span>
-              <span className="block truncate text-[10.5px] leading-tight text-white/50">
-                {activeWard.kind === "official"
-                  ? t("boundary_official")
-                  : `${t("boundary_cluster")} — ${t("boundary_cluster_note")}`}
-              </span>
+            <span className="truncate text-[12px] font-medium text-white/90">
+              {activeWard.name}
             </span>
           </div>
         )}
@@ -546,6 +663,34 @@ function Dot({ colour, label }: { colour: string; label: string }) {
   );
 }
 
+/**
+ * Position spring. bounce: 0 is not timidity — it is the requirement. Any overshoot on
+ * POSITION drives the thumb into the track's 4px padding and through its border, which
+ * is the one thing this must never do. Energy comes from the stretch below instead.
+ */
+const SEG_SPRING = { type: "spring" as const, bounce: 0, duration: 0.32 };
+/** How long the thumb stays stretched. Short enough to read as momentum, not wobble. */
+const SEG_STRETCH_MS = 170;
+
+/**
+ * Segmented control with a thumb that travels.
+ *
+ * WHAT WAS WRONG: `bg-white` was a class that hopped between buttons, cross-faded by
+ * `transition-colors`. Nothing moved — mid-transition BOTH options were part-white, so
+ * it read as "disappear here, appear there".
+ *
+ * WHAT IT IS NOW: one element, rendered only under the active option but tagged with a
+ * stable layoutId. Motion measures its old and new boxes and interpolates between them,
+ * so the thumb genuinely slides.
+ *
+ * Two structural details this depends on:
+ *  - The layoutId is per-INSTANCE (useId). Three of these are mounted at once (language,
+ *    Map/List, 3D/2D); a shared id would make switching language fling the thumb
+ *    sideways into the 3D/2D control.
+ *  - Motion owns the transform on the outer span (that is how layout animation works),
+ *    so the squash lives on a SEPARATE inner span. Setting both on one element would
+ *    have the two fight for the same property.
+ */
 function Segmented({
   options,
   value,
@@ -557,21 +702,67 @@ function Segmented({
   onChange: (v: string) => void;
   grow?: boolean;
 }) {
+  const uid = useId();
+  const reduce = useReducedMotion();
+  const [stretching, setStretching] = useState(false);
+  const prev = useRef(value);
+
+  useEffect(() => {
+    if (prev.current === value) return;
+    prev.current = value;
+    if (reduce) return;
+    setStretching(true);
+    const t = window.setTimeout(() => setStretching(false), SEG_STRETCH_MS);
+    return () => window.clearTimeout(t);
+  }, [value, reduce]);
+
   return (
     <div
       className={`flex h-11 items-center gap-0.5 rounded-full border border-white/10 bg-white/[0.04] p-1 ${grow ? "flex-1" : ""}`}
     >
-      {options.map((o) => (
-        <button
-          key={o.value}
-          onClick={() => onChange(o.value)}
-          className={`h-full rounded-full px-3 text-xs font-medium transition-colors duration-300 ${
-            grow ? "flex-1" : ""
-          } ${value === o.value ? "bg-white text-black" : "text-white/60 hover:text-white/85"}`}
-        >
-          {o.label}
-        </button>
-      ))}
+      {options.map((o) => {
+        const active = value === o.value;
+        return (
+          <button
+            key={o.value}
+            onClick={() => onChange(o.value)}
+            aria-pressed={active}
+            className={`group relative h-full rounded-full px-3 text-xs font-medium ${
+              grow ? "flex-1" : ""
+            }`}
+          >
+            {active && (
+              <motion.span
+                aria-hidden
+                layoutId={`seg-thumb-${uid}`}
+                transition={reduce ? { duration: 0 } : SEG_SPRING}
+                className="absolute inset-0 rounded-full"
+              >
+                {/*
+                  Squash-and-stretch. The thumb elongates along its direction of travel
+                  and relaxes on arrival — the "blob" read — while its position never
+                  passes the target. transform only, so it stays on the GPU.
+                */}
+                <span
+                  className="block h-full w-full rounded-full bg-white"
+                  style={{
+                    transform: stretching ? "scaleX(1.07)" : "scaleX(1)",
+                    transition: `transform ${SEG_STRETCH_MS}ms cubic-bezier(0.23, 1, 0.32, 1)`,
+                  }}
+                />
+              </motion.span>
+            )}
+            {/* Label rides above the thumb, and recolours as the thumb arrives. */}
+            <span
+              className={`relative z-10 transition-colors duration-200 ${
+                active ? "text-black" : "text-white/60 group-hover:text-white/85"
+              }`}
+            >
+              {o.label}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }

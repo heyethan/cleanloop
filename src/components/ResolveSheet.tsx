@@ -25,10 +25,9 @@ import { translate, type Lang } from "@/lib/i18n";
 import type { Report, ReportStatus, Verification } from "@/lib/types";
 
 const WORK_STEPS = [
-  "Uploading after photo",
-  "Re-reading the original report",
+  "Uploading your photo",
   "Comparing before and after",
-  "Checking it's the same location",
+  "Checking it's the same place",
 ];
 
 export default function ResolveSheet({
@@ -158,13 +157,14 @@ export default function ResolveSheet({
                 </div>
               </div>
 
-              <div className="mt-3 flex items-center gap-3 text-[11px]">
-                <span className="rounded-full bg-black/30 px-2 py-1 font-mono text-white/70">
-                  {verification.result}
-                </span>
-                <span className="text-white/50">
-                  {(verification.confidence * 100).toFixed(0)}% confidence
-                </span>
+              {/*
+                The raw enum ("verified_clean") used to be shown in a monospace chip.
+                That is a database value, not language — the heading directly above
+                already says the outcome in words. Only the certainty survives, because
+                that is the part a citizen actually weighs.
+              */}
+              <div className="mt-3 text-[11px] text-white/60">
+                {t("certainty", { n: (verification.confidence * 100).toFixed(0) })}
               </div>
 
               <p className="mt-2.5 text-[11px] leading-relaxed text-white/60">
@@ -173,7 +173,7 @@ export default function ResolveSheet({
             </div>
 
             {!isGreen && (
-              <p className="text-[11px] leading-relaxed text-white/50">
+              <p className="text-[11px] leading-relaxed text-white/60">
                 The model wasn&apos;t confident enough to close this. That&apos;s
                 deliberate — CleanLoop never closes a case on an unverified claim. It
                 stays open for a moderator or a second after-photo.
@@ -186,11 +186,15 @@ export default function ResolveSheet({
               </div>
             )}
 
+            {/*
+              KEPT, but rewritten out of engineering language. "No AI model is wired yet"
+              describes our build state; "Demo mode" describes the user's situation. The
+              notice itself has to stay: without it the screen presents a simulated
+              verdict as a real photo comparison, which is the one lie this product
+              cannot tell.
+            */}
             {!aiIsLive && (
-              <Notice>
-                No AI model is wired yet — this verdict is a placeholder, not a real
-                visual comparison.
-              </Notice>
+              <Notice>Demo mode — this result is simulated, not a real comparison.</Notice>
             )}
 
             <button
@@ -201,9 +205,18 @@ export default function ResolveSheet({
             </button>
           </>
         ) : alreadyDone ? (
-          <div className="rounded-2xl border border-[#22c98a]/25 bg-[#22c98a]/10 p-4 text-sm text-[#7df0c0]">
-            This spot is already verified clean.
-          </div>
+          /*
+            THE PROOF SURFACE.
+
+            This branch used to be a single line — "This spot is already verified
+            clean." — with no after photo, no verdict, no confidence and no reasoning.
+            Verified closure is the one thing this product does that a plain reporting
+            app does not, and the screen a citizen reaches by tapping a green pin is
+            exactly where that claim has to be evidenced. A bare assertion of
+            cleanliness is precisely the unaccountable "we fixed it" the product exists
+            to replace.
+          */
+          <ExistingProof reportId={report.id} lang={lang} />
         ) : (
           <>
             <label className="block cursor-pointer">
@@ -263,7 +276,7 @@ export default function ResolveSheet({
             <button
               onClick={submit}
               disabled={busy || !file}
-              className="w-full rounded-full bg-white py-3.5 text-[15px] font-semibold text-black transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.975] disabled:bg-white/25 disabled:text-white/50"
+              className="w-full rounded-full bg-white py-3.5 text-[15px] font-semibold text-black transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.975] disabled:bg-white/25 disabled:text-white/60"
             >
               {busy ? t("comparing") : t("submit_for_verification")}
             </button>
@@ -271,6 +284,116 @@ export default function ResolveSheet({
         )}
       </div>
     </Sheet>
+  );
+}
+
+interface StoredResolution {
+  photo_after_url: string;
+  ai_verification_result: string;
+  ai_confidence: number;
+  ai_reasoning: string | null;
+  verified_at: string | null;
+  is_self_resolved: boolean;
+  is_genuine_pair: boolean;
+}
+
+/**
+ * The evidence behind an already-closed case: the after photo, the verdict, the
+ * confidence it cleared, and the model's stated reasoning.
+ *
+ * Fetched on open rather than carried in the report payload — /api/reports returns one
+ * row per pin and most pins are still open, so joining a resolution onto every one of
+ * them would be paying for the rare case on every request.
+ */
+function ExistingProof({ reportId, lang }: { reportId: string; lang: Lang }) {
+  const t = (k: string, v?: Record<string, string | number>) => translate(lang, k, v);
+  const [res, setRes] = useState<StoredResolution | null>(null);
+  const [state, setState] = useState<"loading" | "ok" | "missing">("loading");
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch(`/api/reports/${reportId}/resolve`);
+        const j = await r.json();
+        if (!alive) return;
+        if (j.resolution) {
+          setRes(j.resolution);
+          setState("ok");
+        } else {
+          setState("missing");
+        }
+      } catch {
+        if (alive) setState("missing");
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [reportId]);
+
+  if (state === "loading") {
+    return (
+      <div className="h-40 animate-pulse rounded-2xl border border-white/10 bg-white/[0.04]" />
+    );
+  }
+
+  /*
+   * Status says verified but no record came back. Say exactly that rather than
+   * asserting cleanliness we cannot evidence — an unbacked green claim here would be
+   * the very thing this screen exists to prevent.
+   */
+  if (state === "missing" || !res) {
+    return (
+      <div className="rounded-2xl border border-amber-400/25 bg-amber-400/10 p-3 text-[11px] leading-relaxed text-amber-200">
+        {t("proof_missing")}
+      </div>
+    );
+  }
+
+  const pct = Math.round(res.ai_confidence * 100);
+
+  return (
+    <div className="space-y-3">
+      <div className="overflow-hidden rounded-2xl border border-[#22c98a]/25">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={res.photo_after_url} alt="After" className="h-40 w-full object-cover" />
+        <div className="flex items-center justify-between bg-[#22c98a]/10 px-3.5 py-2.5">
+          <span className="text-xs font-medium text-[#7df0c0]">
+            {t("status_verified")}
+          </span>
+          <span className="text-[10px] uppercase tracking-[0.2em] text-white/60">
+            {t("after")}
+          </span>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3.5">
+        {/* Same reasoning as above: the enum is internal, the certainty is not. */}
+        <div className="flex items-center gap-3 text-[11px]">
+          <span className="text-white/60">{t("certainty", { n: String(pct) })}</span>
+          {res.verified_at && (
+            <span className="ml-auto text-white/55">
+              {new Date(res.verified_at).toLocaleDateString()}
+            </span>
+          )}
+        </div>
+        {res.ai_reasoning && (
+          <p className="mt-2.5 text-[11px] leading-relaxed text-white/60">
+            {res.ai_reasoning}
+          </p>
+        )}
+      </div>
+
+      {res.is_self_resolved && (
+        <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-[11px] text-white/60">
+          {t("self_resolved_flag")}
+        </div>
+      )}
+
+      {/* Seeded pairs are two different photographs, and the UI must keep saying so. */}
+      {!res.is_genuine_pair && <Notice>{t("not_genuine_pair")}</Notice>}
+    </div>
   );
 }
 

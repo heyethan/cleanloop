@@ -27,12 +27,17 @@
  *    age. Now two lines, with the age moved onto the metadata line.
  */
 
-import { useMemo } from "react";
+import { motion, useReducedMotion } from "motion/react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { Report, ReportStatus } from "@/lib/types";
 import { wardName } from "@/lib/wards";
 import { translate, type Lang } from "@/lib/i18n";
 
 export type SortMode = "severity" | "recent";
+
+/** Position never overshoots — see the Segmented note in src/app/page.tsx. */
+const SORT_SPRING = { type: "spring" as const, bounce: 0, duration: 0.32 };
+const SORT_STRETCH_MS = 170;
 
 const STATUS_COLOUR: Record<ReportStatus, string> = {
   open: "#ff3b30",
@@ -72,6 +77,19 @@ export default function ListView({
 }) {
   const t = (k: string, v?: Record<string, string | number>) => translate(lang, k, v);
 
+  const uid = useId();
+  const reduce = useReducedMotion();
+  const [stretching, setStretching] = useState(false);
+  const prevSort = useRef(sort);
+  useEffect(() => {
+    if (prevSort.current === sort) return;
+    prevSort.current = sort;
+    if (reduce) return;
+    setStretching(true);
+    const timer = window.setTimeout(() => setStretching(false), SORT_STRETCH_MS);
+    return () => window.clearTimeout(timer);
+  }, [sort, reduce]);
+
   const sorted = useMemo(() => {
     const rows = [...reports];
     if (sort === "severity") {
@@ -102,20 +120,45 @@ export default function ListView({
       <div className="mx-auto max-w-md">
         {/* controls: sort on the left, escape back to the map on the right */}
         <div className="mb-2.5 flex items-center gap-2">
+          {/* Same travelling thumb as the island's segmented controls — see Segmented
+              in src/app/page.tsx for why position carries no bounce. */}
           <div className="flex flex-1 gap-1 rounded-full border border-white/10 bg-white/[0.04] p-1">
-            {(["severity", "recent"] as SortMode[]).map((mode) => (
-              <button
-                key={mode}
-                onClick={() => onSort(mode)}
-                className={`h-9 flex-1 rounded-full text-xs font-medium transition-colors duration-300 ${
-                  sort === mode
-                    ? "bg-white text-black"
-                    : "text-white/60 hover:text-white/85"
-                }`}
-              >
-                {t(mode === "severity" ? "sort_by_severity" : "sort_by_recent")}
-              </button>
-            ))}
+            {(["severity", "recent"] as SortMode[]).map((mode) => {
+              const active = sort === mode;
+              return (
+                <button
+                  key={mode}
+                  onClick={() => onSort(mode)}
+                  aria-pressed={active}
+                  // h-9 measured 36px — 8px under the 44px touch floor.
+                  className="group relative h-11 flex-1 rounded-full text-xs font-medium"
+                >
+                  {active && (
+                    <motion.span
+                      aria-hidden
+                      layoutId={`sort-thumb-${uid}`}
+                      transition={reduce ? { duration: 0 } : SORT_SPRING}
+                      className="absolute inset-0 rounded-full"
+                    >
+                      <span
+                        className="block h-full w-full rounded-full bg-white"
+                        style={{
+                          transform: stretching ? "scaleX(1.07)" : "scaleX(1)",
+                          transition: `transform ${SORT_STRETCH_MS}ms cubic-bezier(0.23, 1, 0.32, 1)`,
+                        }}
+                      />
+                    </motion.span>
+                  )}
+                  <span
+                    className={`relative z-10 transition-colors duration-200 ${
+                      active ? "text-black" : "text-white/60 group-hover:text-white/85"
+                    }`}
+                  >
+                    {t(mode === "severity" ? "sort_by_severity" : "sort_by_recent")}
+                  </span>
+                </button>
+              );
+            })}
           </div>
           <button
             onClick={onBackToMap}
@@ -133,6 +176,17 @@ export default function ListView({
             {t("map_view")}
           </button>
         </div>
+
+        {/*
+          The list never said how big it was, so "worst first" had no denominator —
+          you could not tell whether you were looking at 8 cases or 800, or whether a
+          filter had actually taken effect.
+        */}
+        {sorted.length > 0 && (
+          <p className="mb-2 px-1 text-[11px] text-white/60">
+            {t("showing_n", { n: sorted.length })}
+          </p>
+        )}
 
         {sorted.length === 0 && (
           <p className="py-12 text-center text-sm text-white/55">{t("no_reports")}</p>
@@ -168,8 +222,18 @@ export default function ListView({
                         {t("recurring")}
                       </span>
                     )}
-                    <span className="ml-auto shrink-0 text-[11px] tabular-nums text-white/45">
-                      {t("days_open", { n: daysSince(r.created_at) })}
+                    <span className="ml-auto shrink-0 text-[11px] tabular-nums text-white/60">
+                      {/*
+                        Rows marked "Verified clean" were also reading "45d open" —
+                        flatly contradictory. daysSince(created_at) measures the age of
+                        the REPORT, which is "days open" only while the case is still
+                        open. The close date lives on Resolution.verified_at, which this
+                        list's payload does not carry, so rather than invent one the
+                        label now says what the number actually measures.
+                      */}
+                      {r.status === "verified_resolved"
+                        ? t("days_ago", { n: daysSince(r.created_at) })
+                        : t("days_open", { n: daysSince(r.created_at) })}
                     </span>
                   </span>
 
@@ -194,6 +258,13 @@ export default function ListView({
 /**
  * Severity as five pips rather than "Severity 4/5". Scanning a long list for the bad ones
  * is a shape-matching task, and shapes beat re-reading the same six characters per row.
+ *
+ * DELIBERATELY MONOCHROME. The pips used to be red/amber/grey by severity, which put two
+ * different colour systems in one row: a row could show five RED severity pips beside a
+ * GREEN "verified clean" status dot, and the eye reads the larger red mass first and
+ * concludes the case is bad. In this product colour means STATUS and nothing else —
+ * severity is encoded by how many pips are lit, which is a length judgement and does not
+ * compete with the status dot.
  */
 function SeverityBar({ n }: { n: number }) {
   return (
@@ -205,16 +276,7 @@ function SeverityBar({ n }: { n: number }) {
         <span
           key={i}
           className="h-[3px] w-[7px] rounded-full"
-          style={{
-            backgroundColor:
-              i <= n
-                ? n >= 4
-                  ? "#ff6b5e"
-                  : n === 3
-                    ? "#ffb020"
-                    : "#8aa0b8"
-                : "#ffffff1f",
-          }}
+          style={{ backgroundColor: i <= n ? "#ffffffb8" : "#ffffff24" }}
         />
       ))}
     </span>

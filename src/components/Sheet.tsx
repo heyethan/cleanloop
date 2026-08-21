@@ -43,7 +43,13 @@ export default function Sheet({
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
       <div
-        className="veil-in absolute inset-0 bg-black/70 backdrop-blur-sm"
+        /*
+          bg-black/70 over an already-dark map read as a solid black void — you lost
+          all sense of where the sheet had come from. Apple's guidance is dim to
+          focus, not black out: less opacity, more blur, so the map stays perceptible
+          as a real layer behind glass and the sheet reads as sitting ON something.
+        */
+        className="veil-in absolute inset-0 bg-black/45 backdrop-blur-md"
         onClick={onClose}
       />
       <div className="sheet-rise relative w-full sm:max-w-md">

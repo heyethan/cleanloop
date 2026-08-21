@@ -163,7 +163,7 @@ export default function CommandPalette({
                   height="15"
                   viewBox="0 0 16 16"
                   fill="none"
-                  className="shrink-0 text-white/45"
+                  className="shrink-0 text-white/60"
                   aria-hidden
                 >
                   <circle cx="7" cy="7" r="4.75" stroke="currentColor" strokeWidth="1.4" />
@@ -183,13 +183,13 @@ export default function CommandPalette({
                   }}
                   placeholder={t("search_placeholder")}
                   aria-label={t("search_locality")}
-                  className="h-10 w-full bg-transparent text-[15px] text-white outline-none placeholder:text-white/40"
+                  className="h-10 w-full bg-transparent text-[15px] text-white outline-none placeholder:text-white/55"
                 />
               </div>
 
               <div className="mt-1 max-h-[46vh] overflow-y-auto px-1.5 pb-1.5">
                 {results.length === 0 && (
-                  <p className="px-2.5 py-6 text-center text-[13px] text-white/50">
+                  <p className="px-2.5 py-6 text-center text-[13px] text-white/60">
                     {t("search_empty")}
                   </p>
                 )}
@@ -216,21 +216,23 @@ export default function CommandPalette({
                           }`,
                         }}
                       />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm text-white/90">
-                          {w.name}
-                        </span>
-                        <span className="block truncate text-[10.5px] text-white/45">
-                          {isOfficial ? t("boundary_official") : t("boundary_cluster")}
-                        </span>
+                      {/*
+                        Each row used to carry a "Surveyed boundary" / "Case cluster"
+                        subtitle. Where our outline geometry came from is our problem,
+                        not the reader's — someone jumping to Koramangala wants
+                        Koramangala. The swatch still differs (solid vs dashed) so the
+                        distinction survives visually for anyone who looks.
+                      */}
+                      <span className="min-w-0 flex-1 truncate text-sm text-white/90">
+                        {w.name}
                       </span>
-                      <span className="shrink-0 text-[11px] text-white/35">↵</span>
+                      <span className="shrink-0 text-[11px] text-white/55">↵</span>
                     </button>
                   );
                 })}
               </div>
 
-              <div className="border-t border-white/[0.07] px-4 py-2 text-[10.5px] text-white/40">
+              <div className="border-t border-white/[0.07] px-4 py-2 text-[10.5px] text-white/55">
                 {t("search_hint")}
               </div>
             </div>

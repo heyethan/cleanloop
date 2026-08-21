@@ -21,6 +21,42 @@ import type { Report } from "@/lib/types";
 const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp"];
 
+/**
+ * GET /api/reports/[id]/resolve — the EXISTING verification record for a report.
+ *
+ * Without this, a case that was already verified had no way to show its own proof:
+ * opening it produced a dead end reading "This spot is already verified clean" with no
+ * after photo, no verdict, no confidence and no reasoning. Verified closure is the
+ * entire differentiator, so the one screen that should evidence it cannot be empty.
+ *
+ * Returns { resolution: null } when nothing has been submitted yet — an open case is a
+ * normal state, not an error.
+ */
+export async function GET(
+  _req: Request,
+  ctx: { params: Promise<{ id: string }> },
+) {
+  try {
+    const { id } = await ctx.params;
+    const db = serverClient();
+    const { data, error } = await db
+      .from("resolutions")
+      .select(
+        "photo_after_url, ai_verification_result, ai_confidence, ai_reasoning, submitted_at, verified_at, is_self_resolved, is_genuine_pair",
+      )
+      .eq("report_id", id)
+      // A report can accumulate several attempts; the newest is the one that decided it.
+      .order("submitted_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ resolution: data ?? null });
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+  }
+}
+
 export async function POST(
   req: Request,
   ctx: { params: Promise<{ id: string }> },
