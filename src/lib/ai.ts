@@ -99,6 +99,9 @@ export const stubProvider: AiProvider = {
   async classify(image) {
     const h = hash(image.data);
     return {
+      // The stub cannot see the image, so it must not pretend to judge this. Always true,
+      // which keeps offline development working; only a live model can actually reject.
+      is_waste: true,
       waste_type: WASTE_TYPES[h % WASTE_TYPES.length],
       severity: (h % 5) + 1,
       confidence: 0.5,

@@ -13,6 +13,11 @@ export type ReportStatus = "open" | "claimed" | "verified_resolved";
 export type VerificationResult = "verified_clean" | "ambiguous" | "not_clean";
 
 export interface Classification {
+  /**
+   * False when the photo does not show waste at all. The intake rejects these before
+   * anything is uploaded, stored, or drafted into a complaint.
+   */
+  is_waste: boolean;
   waste_type: WasteType;
   severity: number; // 1-5
   confidence: number; // 0-1
@@ -28,6 +33,12 @@ export interface Verification {
 export interface ComplaintInput {
   waste_type: WasteType;
   severity: number;
+  /**
+   * The classifier's own sentence about the photo. Passed so the complaint describes what
+   * was actually observed instead of inferring prose from a type and a number — a photo of a
+   * flowchart once produced "accumulated construction debris ... has been observed".
+   */
+  description: string;
   is_recurring: boolean;
   ward_name: string | null;
   lat: number;

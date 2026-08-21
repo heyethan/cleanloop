@@ -101,12 +101,40 @@ export async function POST(req: Request) {
     const ai = getProvider();
 
     const bytes = new Uint8Array(await photo.arrayBuffer());
-    const photoUrl = await uploadPhoto(db, bytes, photo.type, "before");
 
+    /*
+     * Classify BEFORE uploading. The upload used to happen first, so a rejected photo would
+     * still have left a file in the bucket; now nothing is stored unless the report is real.
+     */
     const classification = await ai.classify({
       data: Buffer.from(bytes).toString("base64"),
       mimeType: photo.type,
     });
+
+    /*
+     * The front door. Without this the app accepted anything: a photo of a flowchart on a
+     * monitor was filed as a Whitefield waste report, and the complaint writer — given only a
+     * type and a severity — asserted "accumulated construction debris ... has been observed".
+     *
+     * The model was never wrong. It returned is-not-waste with 0.95 confidence and the
+     * description "This image shows a flowchart diagram about a CSR ecosystem program, not
+     * street waste." We stored that sentence and ignored it. A verification product whose
+     * intake accepts any image is not verifying anything.
+     *
+     * The classifier's own sentence is returned so the citizen is told what we saw rather
+     * than a generic refusal.
+     */
+    if (!classification.is_waste) {
+      return NextResponse.json(
+        {
+          error: "That photo doesn't look like waste.",
+          detail: classification.one_line_description,
+        },
+        { status: 422 },
+      );
+    }
+
+    const photoUrl = await uploadPhoto(db, bytes, photo.type, "before");
 
     // Recurring detection is plain geo logic, not ML (spec §4).
     const prior = await findRecurring(db, lat, lng);
@@ -115,6 +143,7 @@ export async function POST(req: Request) {
     const complaintText = await ai.complaint({
       waste_type: classification.waste_type,
       severity: classification.severity,
+      description: classification.one_line_description,
       is_recurring: prior !== null,
       ward_name: ward?.name ?? null,
       lat,

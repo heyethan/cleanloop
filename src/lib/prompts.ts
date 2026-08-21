@@ -23,10 +23,20 @@ severity is an integer 1-5 based on visible volume and spread:
   4 = a large pile spilling across the area
   5 = a large sprawling dump covering multiple square meters
 
-confidence is 0-1, your confidence in this classification.
-one_line_description is a single neutral factual sentence describing what is visible.
+is_waste is the FIRST thing to decide: true only if this photograph shows actual waste at a
+real location. Set it false for anything else — a screenshot, a diagram or flowchart, a photo
+of a screen or a document, a selfie, an indoor scene, a blank wall or floor, or any image
+where no waste is present. When in doubt about whether something is waste, set it false; a
+rejected photo costs someone one retake, whereas a false report is filed to a ward office.
 
-If the photo does not appear to show street waste at all, use waste_type "other" with low confidence and say so in the description.`;
+confidence is 0-1 and means how certain you are OF THE ANSWER YOU GIVE, including the
+is_waste decision. Being certain that an image is NOT waste is HIGH confidence, not low.
+
+one_line_description is a single neutral factual sentence describing what is visible. When
+is_waste is false, say plainly what the image actually shows instead.
+
+waste_type and severity are only meaningful when is_waste is true. When it is false, use
+"other" and 1.`;
 
 export const COMPLAINT_PROMPT = `Write a civic complaint for submission to a ward office in Bengaluru.
 
@@ -34,7 +44,8 @@ Requirements:
 - 2 to 4 sentences.
 - Neutral, factual, administrative tone. No exaggeration, no emotive language, no accusations.
 - State what was observed, where, and that action is requested.
-- Do not invent details that were not provided.
+- Do not invent details that were not provided. Describe only what the observation below
+  states. If it does not mention a kind of waste, do not name one.
 - Plain prose only. No markdown, no headings, no bold, no bullet points, no subject line,
   no salutation and no sign-off. The output is pasted verbatim into a complaint form, so
   any formatting characters appear literally to the reader.
@@ -78,6 +89,13 @@ reasoning is a single short sentence.`;
 export const CLASSIFY_SCHEMA = {
   type: "object",
   properties: {
+    /*
+     * Asked explicitly rather than inferred from waste_type === "other", because "other"
+     * legitimately means unusual waste. A photo of a flowchart on a monitor was classified
+     * `other` / severity 1 / confidence 0.95 with the description "not street waste" — the
+     * model was right and the app filed it anyway. Make the model state the decision.
+     */
+    is_waste: { type: "boolean" },
     waste_type: {
       type: "string",
       enum: ["mixed", "plastic", "organic", "construction", "hazardous", "other"],
@@ -86,7 +104,7 @@ export const CLASSIFY_SCHEMA = {
     confidence: { type: "number" },
     one_line_description: { type: "string" },
   },
-  required: ["waste_type", "severity", "confidence", "one_line_description"],
+  required: ["is_waste", "waste_type", "severity", "confidence", "one_line_description"],
 } as const;
 
 export const VERIFY_SCHEMA = {

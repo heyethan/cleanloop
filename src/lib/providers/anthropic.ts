@@ -155,6 +155,8 @@ export const anthropicProvider: AiProvider = {
       [imageBlock(image), { type: "text", text: CLASSIFY_PROMPT }],
     );
     return {
+      // Absent means "the model did not answer", which must not read as "yes this is waste".
+      is_waste: out.is_waste === true,
       waste_type: out.waste_type,
       severity: clampSeverity(out.severity),
       confidence: clampConfidence(out.confidence),
@@ -167,6 +169,7 @@ export const anthropicProvider: AiProvider = {
       ? `${input.ward_name} (${input.lat.toFixed(5)}, ${input.lng.toFixed(5)})`
       : `${input.lat.toFixed(5)}, ${input.lng.toFixed(5)}`;
     const facts = [
+      `observation: ${input.description}`,
       `waste type: ${input.waste_type}`,
       `severity: ${input.severity} of 5`,
       `location: ${where}`,

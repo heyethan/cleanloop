@@ -124,9 +124,15 @@ export async function readJson<T = unknown>(res: Response): Promise<T> {
     throw new Error(`Something went wrong (error ${res.status}). Please try again.`);
   }
 
-  const body = parsed as { error?: string };
+  const body = parsed as { error?: string; detail?: string };
   if (!res.ok || body?.error) {
-    throw new Error(body?.error ?? `Something went wrong (error ${res.status}).`);
+    /*
+     * `detail` carries the classifier's own sentence about the photo ("This image shows a
+     * flowchart diagram ... not street waste"). Showing it beats a bare refusal, because it
+     * tells the person what we actually saw and therefore what to re-shoot.
+     */
+    const msg = body?.error ?? `Something went wrong (error ${res.status}).`;
+    throw new Error(body?.detail ? `${msg} ${body.detail}` : msg);
   }
   return parsed as T;
 }
