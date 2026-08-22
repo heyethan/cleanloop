@@ -18,7 +18,7 @@
  *    ("you'll see this turn green") rather than just closing.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getSessionId } from "@/lib/session";
 import Sheet from "@/components/Sheet";
 import { translate, type Lang } from "@/lib/i18n";
@@ -53,8 +53,20 @@ export default function ReportSheet({
   const [stage, setStage] = useState<Stage>("idle");
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [manual, setManual] = useState(false);
+  /*
+   * The two text fields are the source of truth and `coords` is derived from them, so
+   * typing can never rewrite or clear what you are in the middle of typing. Holding a
+   * parsed number in state was what made the inputs vanish after the first field.
+   */
+  const [latText, setLatText] = useState("");
+  const [lngText, setLngText] = useState("");
+  const coords = useMemo(() => {
+    if (latText.trim() === "" || lngText.trim() === "") return null;
+    const lat = Number(latText);
+    const lng = Number(lngText);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return { lat, lng };
+  }, [latText, lngText]);
   const [message, setMessage] = useState<string | null>(null);
   const [result, setResult] = useState<Report | null>(null);
   const [aiIsLive, setAiIsLive] = useState(true);
@@ -83,20 +95,20 @@ export default function ReportSheet({
     setStage("locating");
     setMessage(null);
     if (!navigator.geolocation) {
-      setManual(true);
       setStage("idle");
-      setMessage("This browser has no geolocation. Enter coordinates manually.");
+      setMessage("This browser has no geolocation. Type the coordinates below.");
       return;
     }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        // Into the text fields, so the result is visible and editable rather than final.
+        setLatText(pos.coords.latitude.toFixed(5));
+        setLngText(pos.coords.longitude.toFixed(5));
         setStage("idle");
       },
       (err) => {
-        setManual(true);
         setStage("idle");
-        setMessage(`Location unavailable (${err.message}). Enter it manually.`);
+        setMessage(`Location unavailable (${err.message}). Type it below.`);
       },
       { enableHighAccuracy: true, timeout: 10_000 },
     );
@@ -136,9 +148,10 @@ export default function ReportSheet({
   }
 
   /*
-   * `coords` alone is not enough: the manual fallback writes each field independently, so
-   * typing only a latitude leaves longitude at 0 and yields a real-looking point in the
-   * Atlantic. Check the city, not just presence.
+   * `coords` alone is not enough. It is already null until BOTH fields parse, so a
+   * half-typed pair can no longer reach here as a real-looking point in the Atlantic, but
+   * a perfectly valid coordinate outside the city still must not submit. Check the city,
+   * not just presence.
    */
   const coordsValid = Boolean(coords && isInBengaluru(coords.lat, coords.lng));
   const canSubmit = Boolean(file) && coordsValid && stage !== "uploading";
@@ -265,64 +278,53 @@ export default function ReportSheet({
           {/* --- step 2: location --- */}
           <div>
             <StepLabel n={2} label={t("location")} done={Boolean(coords)} />
-            {coords ? (
-              <div className="mt-2 flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.04] px-3.5 py-3">
+            {/*
+              Both routes are ALWAYS on screen, never behind a state flag.
+              Typing a latitude made `coords` non-null, which flipped this to a
+              "location set" summary and took the inputs away mid-entry. Manual entry was
+              also only revealed when geolocation FAILED, but standing outside Bengaluru
+              it SUCCEEDS, returns a good out-of-area fix, and the submit is refused with
+              no obvious way to correct it. Two permanent inputs remove both dead ends.
+            */}
+            <div className="mt-2 space-y-2">
+              <button
+                onClick={locate}
+                disabled={stage === "locating"}
+                className="w-full rounded-2xl border border-white/12 bg-white/[0.05] py-3 text-sm text-white/85 transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.985] disabled:opacity-50"
+              >
+                {stage === "locating" ? t("locating") : t("use_my_location")}
+              </button>
+
+              <div className="flex gap-2">
                 {/*
-                  Was raw monospace "12.93573, 77.62408". Nobody verifies their own
-                  location by reading five decimal places of latitude — they recognise
-                  the place name. The coordinates are still what gets submitted; they
-                  just stopped being the thing on screen.
+                  Controlled, so a GPS result is visible and editable rather than trapped,
+                  and paste works. Empty stays empty rather than becoming 0, which would be
+                  a real-looking coordinate in the Gulf of Guinea.
                 */}
-                <span className="truncate text-xs text-white/75">
+                <input
+                  aria-label="latitude"
+                  placeholder="latitude"
+                  inputMode="decimal"
+                  value={latText}
+                  onChange={(e) => setLatText(e.target.value)}
+                  className="w-1/2 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-sm tabular-nums text-white outline-none focus:border-white/25"
+                />
+                <input
+                  aria-label="longitude"
+                  placeholder="longitude"
+                  inputMode="decimal"
+                  value={lngText}
+                  onChange={(e) => setLngText(e.target.value)}
+                  className="w-1/2 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-sm tabular-nums text-white outline-none focus:border-white/25"
+                />
+              </div>
+
+              {coordsValid && coords && (
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-xs text-white/75">
                   {nearestWard(coords.lat, coords.lng)?.name ?? t("location_set")}
-                </span>
-                <button
-                  onClick={() => {
-                    setCoords(null);
-                    setManual(true);
-                  }}
-                  className="text-[11px] text-white/60 underline-offset-4 hover:text-white/80"
-                >
-                  change
-                </button>
-              </div>
-            ) : (
-              <div className="mt-2 space-y-2">
-                <button
-                  onClick={locate}
-                  disabled={stage === "locating"}
-                  className="w-full rounded-2xl border border-white/12 bg-white/[0.05] py-3 text-sm text-white/85 transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.985] disabled:opacity-50"
-                >
-                  {stage === "locating" ? t("locating") : t("use_my_location")}
-                </button>
-                {manual && (
-                  <div className="flex gap-2">
-                    <input
-                      placeholder="latitude"
-                      inputMode="decimal"
-                      className="w-1/2 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-sm text-white outline-none"
-                      onChange={(e) =>
-                        setCoords((c) => ({
-                          lat: Number(e.target.value),
-                          lng: c?.lng ?? 0,
-                        }))
-                      }
-                    />
-                    <input
-                      placeholder="longitude"
-                      inputMode="decimal"
-                      className="w-1/2 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-sm text-white outline-none"
-                      onChange={(e) =>
-                        setCoords((c) => ({
-                          lat: c?.lat ?? 0,
-                          lng: Number(e.target.value),
-                        }))
-                      }
-                    />
-                  </div>
-                )}
-              </div>
-            )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* LABOR ILLUSION: name the work instead of showing a blank spinner */}
