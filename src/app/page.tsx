@@ -22,6 +22,7 @@
  */
 
 import dynamic from "next/dynamic";
+import MapLoader from "@/components/MapLoader";
 import { motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useReports, filterReports } from "@/lib/useReports";
@@ -79,6 +80,8 @@ export default function Home() {
   const [showFilters, setShowFilters] = useState(false);
   const [showFacilities, setShowFacilities] = useState(true);
   const [ward, setWard] = useState<string | null>(null);
+  /** True once MapLibre has painted. Drives the loader overlay, nothing else. */
+  const [mapReady, setMapReady] = useState(false);
   const [status, setStatus] = useState<ReportStatus | null>(null);
   const [severity, setSeverity] = useState<number | null>(null);
   const [view, setView] = useState<View>("map");
@@ -250,7 +253,18 @@ export default function Home() {
             showFacilities={showFacilities}
             mode={mapMode}
             onActiveWard={setActiveWard}
+            onReady={() => setMapReady(true)}
           />
+          {/*
+            Importers/callers: this route only. Affected API: none exported.
+            Data schemas: none; MapLoader renders no data.
+            User instruction, verbatim: "implement a loader animation using animation.js
+            three.js or wtv so that map loads by the time it's done."
+
+            Mounted inside the map wrapper so it covers exactly the area that sits blank
+            while MapLibre fetches its style and first tiles.
+          */}
+          <MapLoader ready={mapReady} lang={lang} />
         </div>
 
         <div

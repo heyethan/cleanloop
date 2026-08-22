@@ -169,6 +169,14 @@ export const STRINGS: Record<Lang, Dict> = {
     showing_n: "Showing {n} cases",
     verified_of: "{a} of {b} verified",
     loading: "Loading…",
+    /*
+     * Map loader. Importers/callers: src/components/MapLoader.tsx.
+     * Affected API: dictionary keys only. Data schemas: localStorage "cleanloop_lang".
+     * User instruction, verbatim: "implement a loader animation using animation.js three.js
+     * or wtv so that map loads by the time it's done."
+     */
+    app_name: "CleanLoop",
+    loading_city: "loading the city",
   },
   kn: {
     // header
@@ -305,6 +313,9 @@ export const STRINGS: Record<Lang, Dict> = {
     showing_n: "{n} ಪ್ರಕರಣಗಳು",
     verified_of: "{b} ರಲ್ಲಿ {a} ಪರಿಶೀಲಿಸಲಾಗಿದೆ",
     loading: "ಲೋಡ್ ಆಗುತ್ತಿದೆ…",
+    // map loader — brand name stays in Latin script, as elsewhere in the app
+    app_name: "CleanLoop",
+    loading_city: "ನಗರ ಲೋಡ್ ಆಗುತ್ತಿದೆ",
   },
 };
 

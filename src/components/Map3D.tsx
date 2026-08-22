@@ -217,6 +217,15 @@ interface Props {
    * the shape is a surveyed boundary or a report cluster.
    */
   onActiveWard?: (v: { id: string; name: string; kind: "official" | "cluster" } | null) => void;
+  /**
+   * Fires once MapLibre has its style and first tiles painted.
+   *
+   * next/dynamic's `loading:` fallback only covers fetching this component's JS chunk.
+   * After that resolves the map still has to pull a style and tiles, and the user stares
+   * at an empty dark box for that second stretch. The parent needs this signal to hold a
+   * loader over the real gap.
+   */
+  onReady?: () => void;
 }
 
 /**
@@ -236,7 +245,7 @@ function supportsWebGL2(): boolean {
 }
 
 const Map3D = forwardRef<MapHandle, Props>(function Map3D(
-  { reports, onSelect, showFacilities, mode, onActiveWard },
+  { reports, onSelect, showFacilities, mode, onActiveWard, onReady },
   ref,
 ) {
   const container = useRef<HTMLDivElement>(null);
@@ -251,6 +260,9 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
   modeRef.current = mode;
   const onActiveWardRef = useRef(onActiveWard);
   onActiveWardRef.current = onActiveWard;
+  // Same ref pattern: the map initialises once, so a captured callback would go stale.
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
 
   /** Feature id currently painted as active, so we can clear exactly one. */
   const activeFeature = useRef<number | null>(null);
@@ -699,6 +711,7 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
       }
 
       setReady(true);
+      onReadyRef.current?.();
     });
 
     return () => {
