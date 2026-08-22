@@ -112,6 +112,24 @@ body {
 .sheet-rise { animation: sheet-rise 620ms cubic-bezier(0.32, 0.72, 0, 1) both; }
 .veil-in    { animation: veil-in 380ms cubic-bezier(0.32, 0.72, 0, 1) both; }
 
+/*
+ * Importers/callers: src/app/layout.tsx (global stylesheet, applies app-wide).
+ * Affected API: none — CSS only, no exported symbol.
+ * Data schemas: none.
+ * User instruction, verbatim: "we are going to re-evaluate the entire product and see if it
+ * matches the criteria with any leaky gaps, and then we fix it."
+ */
 @media (prefers-reduced-motion: reduce) {
   .sheet-rise, .veil-in { animation-duration: 1ms; }
+
+  /*
+   * Reduced motion means gentler, not dead. The interface is full of `transition-all` with
+   * `active:scale-[...]` and hover translations; those are movement and must stop. Colour and
+   * opacity are feedback, not motion, so they keep easing — a control that acknowledges
+   * nothing at all reads as broken. Narrowing transition-property is what drops transform,
+   * since the utilities that set it are spread across every component.
+   */
+  *, *::before, *::after {
+    transition-property: opacity, color, background-color, border-color, box-shadow !important;
+  }
 }

@@ -29,28 +29,28 @@ prefer a false yellow.
 | Report → upload → classify → complaint → pin | ✅ working end to end |
 | Recurring-spot detection (50m / 14 days) | ✅ working, verified at 20m |
 | Before/after verification + green/yellow logic | ✅ working end to end |
-| Map, report flow, resolve flow, leaderboard | ✅ built, `next build` passes |
-| Seed data (46 synthetic reports) | ✅ loaded |
-| **Live AI model** | ⏸️ **deliberately not wired — see below** |
+| 3D map, report flow, resolve flow, leaderboard, list view | ✅ built, `next build` passes |
+| Non-waste rejected at intake | ✅ working — a photo that isn't street waste never becomes a report |
+| Durable verification (watch + reopen on refill) | ✅ working end to end |
+| English / ಕನ್ನಡ | ✅ shipped (Kannada strings are draft, not yet reviewed by a native speaker) |
+| Seed data (120 synthetic reports, 574 real facilities) | ✅ loaded |
+| **Live AI** | ✅ **wired and running in production** |
 
-### Why the AI is not wired
+### The AI layer
 
-The **prompts are written and verified**. All three were run live against
-`gemini-3.6-flash` on 2026-08-20 and produced correct structured output, including a
-negative control: an identical before/after pair correctly returned `not_clean` at 0.98
-confidence.
+Three distinct calls, all live. The provider is chosen at runtime by
+`CLEANLOOP_AI_PROVIDER`; `src/lib/ai.ts` holds a provider-agnostic `AiProvider` interface
+and a registry, so swapping providers touches one file and no route, component, or schema.
+The default when that variable is unset is `stubProvider` — deterministic, no network
+calls, clearly labelled in the UI wherever a placeholder value is shown — so the repo stays
+runnable without credentials.
 
-What's pending is only the **provider decision**, so the app currently runs on
-`stubProvider` — deterministic, no network calls, clearly labelled in the UI wherever a
-placeholder value is shown.
+Structured output is obtained by **forcing a tool call against a JSON schema** rather than
+asking for JSON in prose, so there is no parsing or repair step and a malformed response is
+impossible by construction. Model identifiers live only in environment variables.
 
-To wire a real provider:
-
-1. Implement the `AiProvider` interface (three methods) in `src/lib/ai.ts`
-2. Register it in the `providers` map
-3. Set `CLEANLOOP_AI_PROVIDER=<name>` in `.env.local`
-
-No route, component, or schema changes are required — routes depend only on the interface.
+To add another provider: implement the three-method `AiProvider` interface, register it in
+the `providers` map in `src/lib/ai.ts`, set `CLEANLOOP_AI_PROVIDER=<name>`.
 
 ---
 
@@ -59,7 +59,7 @@ No route, component, or schema changes are required — routes depend only on th
 ```bash
 npm install
 npm run selfcheck   # 19 assertions, no network
-npm run seed        # 46 synthetic reports (idempotent; --wipe to reset)
+npm run seed        # 120 synthetic reports + real OSM facilities (idempotent; --wipe to reset)
 npm run dev
 ```
 
@@ -117,19 +117,22 @@ never produce a green pin regardless of confidence.
 ## Architecture
 
 ```
-Next.js 16 (App Router, TS, Tailwind)  →  Vercel
-Supabase Postgres + Storage            →  ap-south-1 Mumbai
-Leaflet + OpenStreetMap tiles          →  no API key
-AiProvider interface                   →  provider-agnostic
+Next.js 16 (App Router, TS, Tailwind v4)  →  Vercel
+Supabase Postgres + Storage               →  ap-south-1 Mumbai
+MapLibre GL + OpenStreetMap tiles         →  no API key, 3D extruded severity
+AiProvider interface                      →  provider-agnostic
 ```
 
-- `src/lib/ai.ts` — provider interface + stub. **The only file a provider swap touches.**
-- `src/lib/prompts.ts` — all three prompts, verbatim
-- `src/lib/supabase.ts` — clients + `findRecurring()` geo query
-- `src/lib/wards.ts` — locality lookup + haversine
+- `src/lib/ai.ts` — provider interface + registry + stub. **The only file a provider swap touches.**
+- `src/lib/prompts.ts` — all three prompts and their JSON schemas, verbatim
+- `src/lib/supabase.ts` — clients, `findRecurring()` and `findVerifiedNearby()` geo queries
+- `src/lib/durability.ts` — did a cleanup last? pure functions, no query, no model call
+- `src/lib/wards.ts` — locality lookup, haversine, Bengaluru bounds check
+- `src/lib/photo.ts` — browser-side downscaling before upload + defensive response parsing
 - `src/app/api/reports/` — submit + list
 - `src/app/api/reports/[id]/resolve/` — the verification endpoint
 - `src/app/api/leaderboard/` — computed on read, never stored
+- `src/app/api/stats/` — headline counts, integrity and durability
 
 **Recurring detection** is plain geo logic, not ML: a lat/lng bounding-box query against
 the `(lat,lng)` index, then an exact haversine refine so the 50m radius is actually
@@ -156,8 +159,11 @@ These are real and we'd rather name them than have a judge find them.
    are possible. Session IDs are localStorage-based and trivially cleared. Mitigations in
    place: confidence thresholding, the yellow state, and self-resolution flagging.
    Real defences (device fingerprint rate-limiting, community flagging) are v2.
-4. **Seed data is synthetic.** All 46 seeded reports are flagged `is_seed=true` and
-   labelled in the UI. Placeholder images, not real Bengaluru dumps.
+4. **Seed data is synthetic.** All 120 seeded reports are flagged `is_seed=true` and
+   labelled in the UI. The photos are real Creative Commons waste images, but a seeded
+   before/after pair is two *different* photographs — not one location cleaned. Every
+   seeded resolution carries `is_genuine_pair=false` and the UI says so on the case. The
+   574 mapped waste facilities are real OpenStreetMap nodes, not synthetic.
 5. **Model latency is 3–30s and variable.** Measured on the free tier, which also
    rate-limits. Whichever provider is wired needs optimistic UI and backoff, or the demo
    risks a long spinner on stage.
@@ -166,7 +172,8 @@ These are real and we'd rather name them than have a judge find them.
 
 ## What's next
 
-- Wire a provider (one file)
 - Photograph real dump spots and get genuinely verified before/after pairs — a handful of
   real cases beats any amount of synthetic data in the pitch
 - Optimistic UI + retry so a slow or throttled call never blocks the funnel
+- Get the Kannada strings reviewed by a native speaker before anyone relies on them
+- Point-in-polygon against real BBMP ward GeoJSON, replacing the 12 locality centroids

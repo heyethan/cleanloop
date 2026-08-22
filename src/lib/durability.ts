@@ -46,7 +46,16 @@ export interface DurabilityStats {
  * and only the first green counts. Same rule as src/app/api/leaderboard/route.ts; the two
  * must not disagree about when a case closed.
  */
-function firstVerifiedAt(resolutions: Resolution[]): Map<string, string> {
+/*
+ * Exported (not module-private) so the sponsor evidence pack can apply the SAME rule.
+ * Importers/callers: src/app/api/stats/route.ts (via refilledAfterVerification) and
+ * src/app/impact/[ward]/page.tsx (directly).
+ * Affected API: widens this module's surface by one function; existing exports unchanged.
+ * Data schemas: none — reads Resolution.verified_at in memory, writes nothing.
+ * User instruction, verbatim: "If we need to build something or add on something to the
+ * existing product platform to showcase revenue or business model, then do it."
+ */
+export function firstVerifiedAt(resolutions: Resolution[]): Map<string, string> {
   const first = new Map<string, string>();
   for (const r of resolutions) {
     if (!r.verified_at) continue;

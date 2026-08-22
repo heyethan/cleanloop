@@ -4,10 +4,14 @@
  * The hackathon rubric requires disclosing the prompt trail, so these live in one
  * file and are quoted verbatim in the README. They are provider-independent.
  *
- * Status: prompt TEXT is verified — each was run live against gemini-3.6-flash on
- * 2026-08-20 and produced correct structured output, including a negative control
- * (identical before/after correctly returned not_clean, confidence 0.98).
- * The runtime wiring is deliberately held; see src/lib/ai.ts.
+ * Status: verified live. Each prompt has been run against the configured provider and
+ * returns correct structured output, including a negative control (an identical
+ * before/after pair correctly returns not_clean at high confidence). Structured output is
+ * obtained by forcing a tool call against the schemas below, so nothing here asks for JSON
+ * in prose and no response needs parsing or repair.
+ *
+ * The model identifier is never named here — it is read from the environment in
+ * src/lib/providers/, so these prompts stay provider-independent in fact, not just intent.
  */
 
 export const CLASSIFY_PROMPT = `You are triaging a citizen-submitted photo of street waste in Bengaluru, India.

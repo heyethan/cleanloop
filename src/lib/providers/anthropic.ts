@@ -29,7 +29,7 @@ import {
   COMPLAINT_PROMPT,
   VERIFY_PROMPT,
   VERIFY_SCHEMA,
-} from "../prompts";
+} from "../prompts.ts"; // .ts extension — see the note in src/lib/ai.ts
 
 const API_URL = "https://api.anthropic.com/v1/messages";
 const API_VERSION = "2023-06-01";

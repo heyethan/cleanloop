@@ -36,7 +36,10 @@
  */
 
 import type { Classification, ComplaintInput, Verification } from "./types";
-import { anthropicProvider } from "./providers/anthropic";
+// Explicit .ts extension: `npm run selfcheck` loads this file through Node's real ESM loader
+// (`--experimental-strip-types`), which does not do the extensionless resolution the bundler
+// does. Without it the whole self-check suite dies before its first assertion.
+import { anthropicProvider } from "./providers/anthropic.ts";
 
 export interface ImageInput {
   /** base64-encoded image bytes, no data: prefix */

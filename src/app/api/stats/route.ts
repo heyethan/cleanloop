@@ -66,6 +66,29 @@ export async function GET() {
      * The two numbers no incumbent can publish. Both are measured from rows we already
      * fetched, so this adds no query and no model call.
      */
+    /*
+     * Which ward has the most REJECTED claims. The evidence pack's hero section is the
+     * rejection log, and rejections run only ~1-2 per ward, so an entry link chosen by
+     * report count would routinely land on a ward whose hero is empty. Pick by the number
+     * that actually has to be non-zero.
+     */
+    const wardOf = new Map(rows.map((r) => [r.id as string, r.ward_id as string | null]));
+    const rejectionsByWard = new Map<string, number>();
+    for (const r of verifiedRows) {
+      if (r.ai_verification_result === "verified_clean") continue;
+      const w = wardOf.get(r.report_id as string);
+      if (!w) continue;
+      rejectionsByWard.set(w, (rejectionsByWard.get(w) ?? 0) + 1);
+    }
+    let topRejectionWard: string | null = null;
+    let topRejectionCount = 0;
+    for (const [w, c] of rejectionsByWard) {
+      if (c > topRejectionCount) {
+        topRejectionCount = c;
+        topRejectionWard = w;
+      }
+    }
+
     const integrity = integrityStats(verifiedRows as unknown as Resolution[]);
     const durability = refilledAfterVerification(
       rows as unknown as Report[],
@@ -83,6 +106,7 @@ export async function GET() {
       ...integrity,
       spots_watched: durability.watched,
       spots_refilled: durability.refilled,
+      top_rejection_ward: topRejectionWard,
     });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

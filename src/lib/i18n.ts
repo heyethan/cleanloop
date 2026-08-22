@@ -125,6 +125,42 @@ export const STRINGS: Record<Lang, Dict> = {
     spots_refilled: "cleaned spots that refilled",
     durability_note:
       "We re-check every spot we certify. A cleanup that refills stops counting as resolved.",
+    /*
+     * Sponsor evidence pack — /impact/[ward].
+     * Importers/callers: src/components/ImpactPack.tsx via useLang()/translate().
+     * Affected API: dictionary keys only; Lang, STRINGS, translate, useLang unchanged.
+     * Data schemas: none beyond the existing localStorage key "cleanloop_lang".
+     * User instruction, verbatim: "If we need to build something or add on something to the
+     * existing product platform to showcase revenue or business model, then do it."
+     */
+    sponsor_pack: "Open the sponsor evidence pack",
+    impact_eyebrow: "Sponsor evidence pack",
+    back_to_map: "Back to the map",
+    after: "After",
+    rejected_claims: "Cleanup claims we refused to certify",
+    rejected_note:
+      "Whoever cleans a spot never certifies their own work. Your name goes on the outcomes we verified — never on the claims we could not.",
+    rejected_none:
+      "No claim in this zone has been rejected yet. Every cleanup submitted here passed verification.",
+    verdict_ambiguous: "Could not verify",
+    verdict_not_clean: "Waste still present",
+    verified_outcomes: "Verified outcomes",
+    outcomes_none: "No cleanup in this zone has been verified yet.",
+    days_to_verify: "{n} days to verify",
+    durability_heading: "Did the cleanups last?",
+    spots_under_watch: "spots under watch",
+    spots_refilled_n: "have refilled since we certified them",
+    median_held: "Median {n} days held so far.",
+    never_refilled: "None of them has refilled yet.",
+    cost_heading: "Cost per verified outcome",
+    fee_assumption: "Assumed zone fee (₹ per month)",
+    fee_apply: "Recalculate",
+    fee_disclaimer:
+      "This rate is our assumption, not a quoted price. Change it to match your own contract and the figure updates.",
+    cost_no_outcomes: "No verified outcomes yet, so there is no cost per outcome to show.",
+    export_csv: "Download evidence pack (CSV)",
+    impact_empty: "No reports have been filed in this zone yet.",
+    impact_error: "We could not load this zone's evidence. Please try again.",
     // leaderboard
     accountability: "Accountability",
     ward_performance: "Ward performance",
@@ -232,6 +268,35 @@ export const STRINGS: Record<Lang, Dict> = {
     spots_refilled: "ಮತ್ತೆ ಕಸ ತುಂಬಿದ ಸ್ಥಳಗಳು",
     durability_note:
       "ನಾವು ದೃಢೀಕರಿಸಿದ ಪ್ರತಿ ಸ್ಥಳವನ್ನು ಮತ್ತೆ ಪರಿಶೀಲಿಸುತ್ತೇವೆ. ಮತ್ತೆ ಕಸ ತುಂಬಿದರೆ ಅದು ಬಗೆಹರಿದದ್ದು ಎಂದು ಪರಿಗಣಿಸಲ್ಪಡುವುದಿಲ್ಲ.",
+    // sponsor evidence pack — draft, unreviewed (see the file header)
+    sponsor_pack: "ಪ್ರಾಯೋಜಕರ ಸಾಕ್ಷ್ಯ ಕಡತ ತೆರೆಯಿರಿ",
+    impact_eyebrow: "ಪ್ರಾಯೋಜಕರ ಸಾಕ್ಷ್ಯ ಕಡತ",
+    back_to_map: "ನಕ್ಷೆಗೆ ಹಿಂತಿರುಗಿ",
+    after: "ನಂತರ",
+    rejected_claims: "ನಾವು ದೃಢೀಕರಿಸಲು ನಿರಾಕರಿಸಿದ ಸ್ವಚ್ಛತೆ ಹಕ್ಕುಗಳು",
+    rejected_note:
+      "ಸ್ಥಳವನ್ನು ಸ್ವಚ್ಛಗೊಳಿಸಿದವರು ತಮ್ಮ ಕೆಲಸವನ್ನು ತಾವೇ ದೃಢೀಕರಿಸುವುದಿಲ್ಲ. ನಾವು ಪರಿಶೀಲಿಸಿದ ಫಲಿತಾಂಶಗಳ ಮೇಲೆ ಮಾತ್ರ ನಿಮ್ಮ ಹೆಸರು ಇರುತ್ತದೆ.",
+    rejected_none:
+      "ಈ ವಲಯದಲ್ಲಿ ಇದುವರೆಗೆ ಯಾವ ಹಕ್ಕನ್ನೂ ತಿರಸ್ಕರಿಸಿಲ್ಲ. ಇಲ್ಲಿ ಸಲ್ಲಿಸಿದ ಪ್ರತಿ ಸ್ವಚ್ಛತೆಯೂ ಪರಿಶೀಲನೆಯಲ್ಲಿ ಉತ್ತೀರ್ಣವಾಗಿದೆ.",
+    verdict_ambiguous: "ದೃಢೀಕರಿಸಲಾಗಲಿಲ್ಲ",
+    verdict_not_clean: "ಕಸ ಇನ್ನೂ ಇದೆ",
+    verified_outcomes: "ಪರಿಶೀಲಿತ ಫಲಿತಾಂಶಗಳು",
+    outcomes_none: "ಈ ವಲಯದಲ್ಲಿ ಇದುವರೆಗೆ ಯಾವ ಸ್ವಚ್ಛತೆಯೂ ಪರಿಶೀಲಿಸಲ್ಪಟ್ಟಿಲ್ಲ.",
+    days_to_verify: "ಪರಿಶೀಲನೆಗೆ {n} ದಿನಗಳು",
+    durability_heading: "ಸ್ವಚ್ಛತೆ ಉಳಿಯಿತೇ?",
+    spots_under_watch: "ನಿಗಾದಲ್ಲಿರುವ ಸ್ಥಳಗಳು",
+    spots_refilled_n: "ದೃಢೀಕರಿಸಿದ ನಂತರ ಮತ್ತೆ ಕಸ ತುಂಬಿವೆ",
+    median_held: "ಇದುವರೆಗೆ ಸರಾಸರಿ {n} ದಿನ ಉಳಿದಿದೆ.",
+    never_refilled: "ಅವುಗಳಲ್ಲಿ ಯಾವುದೂ ಇನ್ನೂ ಮತ್ತೆ ಕಸ ತುಂಬಿಲ್ಲ.",
+    cost_heading: "ಪ್ರತಿ ಪರಿಶೀಲಿತ ಫಲಿತಾಂಶದ ವೆಚ್ಚ",
+    fee_assumption: "ಊಹಿಸಿದ ವಲಯ ಶುಲ್ಕ (₹ ಪ್ರತಿ ತಿಂಗಳು)",
+    fee_apply: "ಮರುಲೆಕ್ಕ ಮಾಡಿ",
+    fee_disclaimer:
+      "ಈ ದರ ನಮ್ಮ ಊಹೆ, ಉಲ್ಲೇಖಿಸಿದ ಬೆಲೆ ಅಲ್ಲ. ನಿಮ್ಮ ಒಪ್ಪಂದಕ್ಕೆ ತಕ್ಕಂತೆ ಬದಲಾಯಿಸಿದರೆ ಅಂಕಿ ನವೀಕರಣಗೊಳ್ಳುತ್ತದೆ.",
+    cost_no_outcomes: "ಇನ್ನೂ ಪರಿಶೀಲಿತ ಫಲಿತಾಂಶಗಳಿಲ್ಲ, ಆದ್ದರಿಂದ ಪ್ರತಿ ಫಲಿತಾಂಶದ ವೆಚ್ಚ ತೋರಿಸಲಾಗದು.",
+    export_csv: "ಸಾಕ್ಷ್ಯ ಕಡತ ಡೌನ್‌ಲೋಡ್ ಮಾಡಿ (CSV)",
+    impact_empty: "ಈ ವಲಯದಲ್ಲಿ ಇದುವರೆಗೆ ಯಾವ ವರದಿಯೂ ಸಲ್ಲಿಕೆಯಾಗಿಲ್ಲ.",
+    impact_error: "ಈ ವಲಯದ ಸಾಕ್ಷ್ಯವನ್ನು ಲೋಡ್ ಮಾಡಲಾಗಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
     // leaderboard
     accountability: "ಜವಾಬ್ದಾರಿ",
     ward_performance: "ವಾರ್ಡ್ ಕಾರ್ಯಕ್ಷಮತೆ",

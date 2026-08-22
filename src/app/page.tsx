@@ -58,6 +58,11 @@ interface Stats {
   claims_total: number;
   claims_rejected: number;
   rejection_rate: number | null;
+  /**
+   * The ward with the most REJECTED claims. The evidence pack leads with its rejection log,
+   * so the entry link below targets this rather than the busiest ward — those differ.
+   */
+  top_rejection_ward: string | null;
   spots_watched: number;
   spots_refilled: number;
 }
@@ -398,6 +403,23 @@ export default function Home() {
                 <p className="col-span-2 -mt-0.5 text-[11px] leading-relaxed text-white/45">
                   {t("durability_note")}
                 </p>
+
+                {/*
+                  Entry to the sponsor evidence pack — a different audience's surface, so a
+                  plain anchor (hard navigation) rather than next/link. Targets the currently
+                  filtered ward when one is chosen, else the ward with the most REJECTED
+                  claims: that page leads with its rejection log, and picking the busiest ward
+                  instead would often open one whose hero section is empty.
+                */}
+                {(ward ?? stats.top_rejection_ward) && (
+                  <a
+                    href={`/impact/${ward ?? stats.top_rejection_ward}`}
+                    className="col-span-2 flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-[12px] text-white/70 transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/[0.08] hover:text-white active:scale-[0.99]"
+                  >
+                    {t("sponsor_pack")}
+                    <span aria-hidden="true">→</span>
+                  </a>
+                )}
               </div>
             )}
 
