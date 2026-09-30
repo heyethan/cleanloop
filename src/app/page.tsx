@@ -311,7 +311,8 @@ export default function Home() {
             <>
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-[10px] uppercase tracking-[0.28em] text-white/55">
+                {/* Letter-spacing splits Kannada conjuncts apart, so only track Latin. */}
+                <div className={`text-[10px] uppercase text-white/55 ${lang === "en" ? "tracking-[0.28em]" : ""}`}>
                   {t("city")}
                 </div>
                 <h1 className="mt-1 text-[26px] font-semibold leading-none tracking-tight">

@@ -93,10 +93,13 @@ export default function ListView({
   const sorted = useMemo(() => {
     const rows = [...reports];
     if (sort === "severity") {
-      // Worst first: severity desc, then oldest first — a severe spot ignored for
-      // three weeks outranks a severe spot reported this morning.
+      // Worst first: unresolved before verified, then severity desc, then oldest first —
+      // a severe spot ignored for three weeks outranks a severe spot reported this morning,
+      // and a spot that is already clean is never "worst".
+      const done = (r: (typeof rows)[number]) => (r.status === "verified_resolved" ? 1 : 0);
       rows.sort(
         (a, b) =>
+          done(a) - done(b) ||
           b.severity - a.severity ||
           new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
       );
