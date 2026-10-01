@@ -8,8 +8,8 @@
  * dishonest claim the product exists to reject.
  *
  * The model only sees one photo at a time and answers "which of these classes is it".
- * It cannot judge severity (the reporter picks that) and it cannot tell whether two photos
- * show the same place (the resolve route checks distance for that). Its labels come from
+ * It cannot judge severity (the reporter picks that). Same place is checked twice: the scene
+ * match below compares the two photos, and the resolve route checks GPS distance. Its labels come from
  * model/metadata.json and must match WasteType plus "not_garbage" and "irrelevant".
  */
 import { readFile } from "node:fs/promises";
@@ -31,8 +31,18 @@ const IRRELEVANT = "irrelevant";
 /** The after photo must be this sure it shows no waste before a cleanup turns green. */
 export const CLEAN_THRESHOLD = 0.75;
 
+/**
+ * Minimum scene similarity between before and after photos. Calibrated 2026-10-01 on 17 real
+ * same-spot cleanup pairs (16 pass) vs 77 dump-vs-elsewhere pairs (~2% pass); a street dump
+ * against a green field scored 0.07.
+ * ponytail: 17 pairs, none from India; recalibrate once real Bengaluru cleanups come in.
+ */
+export const SCENE_MATCH_THRESHOLD = 0.3;
+
 interface Loaded {
   model: tf.LayersModel;
+  /** MobileNet trunk up to its last spatial feature map (before pooling): the scene layout. */
+  scene: tf.LayersModel;
   labels: string[];
   size: number;
 }
@@ -58,35 +68,73 @@ async function load(): Promise<Loaded> {
       ),
     }),
   );
-  return { model, labels: meta.labels, size: meta.imageSize ?? 224 };
+  // TM nests the MobileNet trunk as the first layer. Its last 4-D output keeps *where* things
+  // are (road, wall, skyline), which is what survives a cleanup; pooling would throw that away.
+  const trunk = model.layers[0] as tf.Sequential;
+  const spatial = [...trunk.layers].reverse().find((l) => (l.outputShape as number[]).length === 4)!;
+  const scene = tf.model({ inputs: trunk.inputs, outputs: spatial.output as tf.SymbolicTensor });
+  return { model, scene, labels: meta.labels, size: meta.imageSize ?? 224 };
 }
 
-/** Class name → probability for one photo. Exported for the evaluation script. */
-export async function predict(image: ImageInput): Promise<Record<string, number>> {
+function ready(): Promise<Loaded> {
   loading ??= load().catch((e) => {
     loading = null; // let the next request retry instead of caching the failure
     throw e;
   });
-  const { model, labels, size } = await loading;
+  return loading;
+}
 
-  // Same preprocessing as TM: centre square crop, resize, scale pixels to [-1, 1].
+/** Same preprocessing as TM: centre square crop, resize, scale pixels to [-1, 1]. */
+async function pixels(image: ImageInput, size: number): Promise<tf.Tensor4D> {
   const raw = await sharp(Buffer.from(image.data, "base64"))
     .rotate() // honour EXIF orientation from phone cameras
     .resize(size, size, { fit: "cover", position: "centre" })
     .removeAlpha()
     .raw()
     .toBuffer();
+  return tf.tidy(() =>
+    tf.tensor3d(new Uint8Array(raw), [size, size, 3], "int32").toFloat().div(127.5).sub(1).expandDims(0),
+  ) as tf.Tensor4D;
+}
 
-  const probs = tf.tidy(() => {
-    const input = tf
-      .tensor3d(new Uint8Array(raw), [size, size, 3], "int32")
-      .toFloat()
-      .div(127.5)
-      .sub(1)
-      .expandDims(0);
-    return (model.predict(input) as tf.Tensor).dataSync();
-  });
+/** Class name → probability for one photo. Exported for the evaluation script. */
+export async function predict(image: ImageInput): Promise<Record<string, number>> {
+  const { model, labels, size } = await ready();
+  const input = await pixels(image, size);
+  const probs = tf.tidy(() => (model.predict(input) as tf.Tensor).dataSync());
+  input.dispose();
   return Object.fromEntries(labels.map((l, i) => [l, probs[i]]));
+}
+
+/**
+ * How alike two photos' scenes are, region by region (-1..1). Waste removal changes the
+ * ground; the road, walls and skyline around it stay, so a real before/after pair scores high
+ * and a clean photo taken somewhere else scores low.
+ */
+export async function sceneMatch(a: ImageInput, b: ImageInput): Promise<number> {
+  const [fa, fb] = await Promise.all([sceneFeatures(a), sceneFeatures(b)]);
+  const cells = 49; // 7x7 grid
+  const c = fa.length / cells;
+  let total = 0;
+  for (let p = 0; p < cells; p++) {
+    let dot = 0, na = 0, nb = 0;
+    for (let i = p * c; i < (p + 1) * c; i++) {
+      dot += fa[i] * fb[i];
+      na += fa[i] * fa[i];
+      nb += fb[i] * fb[i];
+    }
+    total += dot / Math.sqrt(na * nb || 1);
+  }
+  return total / cells;
+}
+
+/** The scene's spatial feature map, flattened. Exported for calibration. */
+export async function sceneFeatures(image: ImageInput): Promise<Float32Array> {
+  const { scene, size } = await ready();
+  const input = await pixels(image, size);
+  const f = tf.tidy(() => (scene.predict(input) as tf.Tensor).dataSync() as Float32Array);
+  input.dispose();
+  return f;
 }
 
 function topWaste(p: Record<string, number>): [WasteType, number] {
@@ -157,6 +205,16 @@ export const tmProvider: AiProvider = {
     }
     const clean = p[NOT_GARBAGE] ?? 0;
     if (clean >= CLEAN_THRESHOLD) {
+      // "No waste in the photo" isn't enough: a photo of any clean field passes that.
+      const match = await sceneMatch(before, after);
+      if (match < SCENE_MATCH_THRESHOLD) {
+        return {
+          result: "ambiguous",
+          confidence: clean,
+          reasoning:
+            "The photo looks clean, but it doesn't look like the same place as the report. Take it from where the before photo was taken.",
+        };
+      }
       return {
         result: "verified_clean",
         confidence: clean,

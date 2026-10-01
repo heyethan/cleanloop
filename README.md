@@ -46,8 +46,11 @@ decides "clean" lets anyone POST a verified cleanup. No API key, no network call
 
 - **Intake:** a photo scored `not_garbage` or `irrelevant` is refused before anything is stored. Otherwise the
   model names the waste type; the reporter picks severity 1–5, which a classifier can't judge.
-- **Verification:** green only when the after photo scores `not_garbage` ≥ 0.75 **and** the
-  device's GPS fix is within 50 m of the report. No fix, too far, or a mid score → yellow.
+- **Verification:** green only when the after photo scores `not_garbage` ≥ 0.75, **and** its
+  scene matches the before photo (region-by-region similarity of the model's features ≥ 0.30,
+  so a clean photo taken anywhere else fails), **and** the device's GPS fix is within 50 m of
+  the report. Any one missing → yellow. The scene threshold was calibrated on 17 real
+  same-spot cleanup pairs (16 pass) against 77 mismatched pairs (~2% pass).
   An `irrelevant` after photo or identical before/after bytes → `not_clean`.
 - **Complaint text:** a fixed plain-text template (`src/lib/complaint.ts`).
 
