@@ -187,9 +187,8 @@ export default function ResolveSheet({
 
             {!isGreen && (
               <p className="text-[11px] leading-relaxed text-white/60">
-                The model wasn&apos;t confident enough to close this. That&apos;s
-                deliberate — CleanLoop never closes a case on an unverified claim. It
-                stays open for a moderator or a second after-photo.
+                CleanLoop never closes a case on an unverified claim. It stays open for
+                a moderator or a second after-photo.
               </p>
             )}
 

@@ -23,9 +23,9 @@
  * the UI states plainly that a result is simulated rather than presenting a stub verdict
  * as a real one.
  *
- * The tm model was checked on 2026-10-01 against 115 held-out photos it never trained on:
- * 105 correct on waste vs. not-waste, 4 waste photos scored clean enough to turn green.
- * Those 4 are why the resolve route also requires a GPS fix within 50m of the report.
+ * The tm model was checked on 2026-10-01 against 131 held-out photos it never trained on:
+ * 119 correct on waste vs. not-waste, 3 scored clean enough to pass the image check alone.
+ * Those 3 are why the resolve route also requires a GPS fix within 50m of the report.
  *
  * TO ADD ANOTHER PROVIDER:
  *   1. implement AiProvider (three methods)

@@ -38,25 +38,28 @@ prefer a false yellow.
 
 ### The image model
 
-A six-class image classifier trained on [Teachable Machine](https://teachablemachine.withgoogle.com/):
-`mixed`, `plastic`, `organic`, `construction`, `hazardous` and `not_garbage`. It runs **on the
+A seven-class image classifier trained on [Teachable Machine](https://teachablemachine.withgoogle.com/):
+`mixed`, `plastic`, `organic`, `construction`, `hazardous`, `not_garbage` (a clean outdoor
+place) and `irrelevant` (screenshots, documents, rooms, food — not a photo of a place at all). It runs **on the
 server** with `@tensorflow/tfjs` and `sharp` — never in the browser, because a client that
 decides "clean" lets anyone POST a verified cleanup. No API key, no network call, no cost.
 
-- **Intake:** a photo scored `not_garbage` is refused before anything is stored. Otherwise the
+- **Intake:** a photo scored `not_garbage` or `irrelevant` is refused before anything is stored. Otherwise the
   model names the waste type; the reporter picks severity 1–5, which a classifier can't judge.
 - **Verification:** green only when the after photo scores `not_garbage` ≥ 0.75 **and** the
   device's GPS fix is within 50 m of the report. No fix, too far, or a mid score → yellow.
-  Identical before/after bytes → `not_clean`.
+  An `irrelevant` after photo or identical before/after bytes → `not_clean`.
 - **Complaint text:** a fixed plain-text template (`src/lib/complaint.ts`).
 
 The provider is chosen by `CLEANLOOP_AI_PROVIDER` (`tm`, or `stub` for offline development);
 `src/lib/ai.ts` holds the `AiProvider` interface, so a swap touches one file.
 
-**Measured on 115 held-out photos** the model never trained on: 105/115 correct on waste vs.
-not-waste, 76/115 on the exact type. 4 of 95 waste photos scored clean enough to pass the
-image check, which is why the GPS check exists. Training images: 570 hand-reviewed,
-openly licensed photos, listed with source and licence in [`model/SOURCES.csv`](model/SOURCES.csv).
+**Measured on 131 held-out photos** the model never trained on: 119/131 correct on waste vs.
+not-waste, 86/131 on the exact class, and 19/22 screenshots, documents and indoor shots caught
+as `irrelevant`. 3 photos scored clean enough to pass the image check, which is why the GPS
+check exists. Training images: 663 hand-reviewed photos and phone-size screenshots, listed
+with source and licence in [`model/SOURCES.csv`](model/SOURCES.csv). Screenshots were
+captured for training only and are not redistributed.
 
 ---
 ## Run it

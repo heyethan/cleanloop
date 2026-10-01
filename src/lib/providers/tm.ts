@@ -10,7 +10,7 @@
  * The model only sees one photo at a time and answers "which of these classes is it".
  * It cannot judge severity (the reporter picks that) and it cannot tell whether two photos
  * show the same place (the resolve route checks distance for that). Its labels come from
- * model/metadata.json and must match WasteType plus "not_garbage".
+ * model/metadata.json and must match WasteType plus "not_garbage" and "irrelevant".
  */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -22,6 +22,11 @@ import { complaintText } from "../complaint.ts";
 
 const MODEL_DIR = path.join(process.cwd(), "model");
 const NOT_GARBAGE = "not_garbage";
+/**
+ * Screenshots, documents, rooms, food: not a photo of a place at all. Without this class the
+ * model had to file them under not_garbage, so a phone screenshot read as "the spot is clean".
+ */
+const IRRELEVANT = "irrelevant";
 
 /** The after photo must be this sure it shows no waste before a cleanup turns green. */
 export const CLEAN_THRESHOLD = 0.75;
@@ -86,7 +91,7 @@ export async function predict(image: ImageInput): Promise<Record<string, number>
 
 function topWaste(p: Record<string, number>): [WasteType, number] {
   const [label, score] = Object.entries(p)
-    .filter(([l]) => l !== NOT_GARBAGE)
+    .filter(([l]) => l !== NOT_GARBAGE && l !== IRRELEVANT)
     .sort((a, b) => b[1] - a[1])[0];
   return [label as WasteType, score];
 }
@@ -97,6 +102,16 @@ export const tmProvider: AiProvider = {
 
   async classify(image) {
     const p = await predict(image);
+    if ((p[IRRELEVANT] ?? 0) >= 0.5) {
+      return {
+        is_waste: false,
+        waste_type: "other",
+        severity: 1,
+        confidence: p[IRRELEVANT],
+        one_line_description:
+          "This isn't a photo of a street or a dump spot. Take a photo of the waste where it is.",
+      };
+    }
     const clean = p[NOT_GARBAGE] ?? 0;
     const [wasteType, score] = topWaste(p);
     if (clean >= 0.5) {
@@ -132,7 +147,15 @@ export const tmProvider: AiProvider = {
         reasoning: "The after photo is identical to the before photo.",
       };
     }
-    const clean = (await predict(after))[NOT_GARBAGE] ?? 0;
+    const p = await predict(after);
+    if ((p[IRRELEVANT] ?? 0) >= 0.5) {
+      return {
+        result: "not_clean",
+        confidence: p[IRRELEVANT],
+        reasoning: "This isn't a photo of the spot. Take the after photo where the waste was.",
+      };
+    }
+    const clean = p[NOT_GARBAGE] ?? 0;
     if (clean >= CLEAN_THRESHOLD) {
       return {
         result: "verified_clean",
