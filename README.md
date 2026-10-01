@@ -11,10 +11,10 @@ Built for the KE Startup Fest Hackathon — Social & Community Impact / Waste Ma
 Civic garbage-reporting tools already prove people will report. What none of them do is
 **verify the cleanup**. A "resolved" status is somebody's word.
 
-CleanLoop compares the before and after photos with a vision model and only flips a pin
-green when the waste is actually gone. If the model isn't confident — or the two photos
-don't look like the same place — the pin goes **yellow, "claimed, unverified"**, and the
-case stays open.
+CleanLoop checks the after photo with an image classifier and the phone's GPS, and only
+flips a pin green when the waste is gone **and** the photo was taken at the spot. If the
+model isn't confident — or the photo was taken somewhere else, or without a location — the
+pin goes **yellow, "claimed, unverified"**, and the case stays open.
 
 A false green would destroy the product's only reason to exist, so the system is built to
 prefer a false yellow.
@@ -36,24 +36,29 @@ prefer a false yellow.
 | Seed data (120 synthetic reports, 574 real facilities) | ✅ loaded |
 | **Live AI** | ✅ **wired and running in production** |
 
-### The AI layer
+### The image model
 
-Three distinct calls, all live. The provider is chosen at runtime by
-`CLEANLOOP_AI_PROVIDER`; `src/lib/ai.ts` holds a provider-agnostic `AiProvider` interface
-and a registry, so swapping providers touches one file and no route, component, or schema.
-The default when that variable is unset is `stubProvider` — deterministic, no network
-calls, clearly labelled in the UI wherever a placeholder value is shown — so the repo stays
-runnable without credentials.
+A six-class image classifier trained on [Teachable Machine](https://teachablemachine.withgoogle.com/):
+`mixed`, `plastic`, `organic`, `construction`, `hazardous` and `not_garbage`. It runs **on the
+server** with `@tensorflow/tfjs` and `sharp` — never in the browser, because a client that
+decides "clean" lets anyone POST a verified cleanup. No API key, no network call, no cost.
 
-Structured output is obtained by **forcing a tool call against a JSON schema** rather than
-asking for JSON in prose, so there is no parsing or repair step and a malformed response is
-impossible by construction. Model identifiers live only in environment variables.
+- **Intake:** a photo scored `not_garbage` is refused before anything is stored. Otherwise the
+  model names the waste type; the reporter picks severity 1–5, which a classifier can't judge.
+- **Verification:** green only when the after photo scores `not_garbage` ≥ 0.75 **and** the
+  device's GPS fix is within 50 m of the report. No fix, too far, or a mid score → yellow.
+  Identical before/after bytes → `not_clean`.
+- **Complaint text:** a fixed plain-text template (`src/lib/complaint.ts`).
 
-To add another provider: implement the three-method `AiProvider` interface, register it in
-the `providers` map in `src/lib/ai.ts`, set `CLEANLOOP_AI_PROVIDER=<name>`.
+The provider is chosen by `CLEANLOOP_AI_PROVIDER` (`tm`, or `stub` for offline development);
+`src/lib/ai.ts` holds the `AiProvider` interface, so a swap touches one file.
+
+**Measured on 115 held-out photos** the model never trained on: 105/115 correct on waste vs.
+not-waste, 76/115 on the exact type. 4 of 95 waste photos scored clean enough to pass the
+image check, which is why the GPS check exists. Training images: 570 hand-reviewed,
+openly licensed photos, listed with source and licence in [`model/SOURCES.csv`](model/SOURCES.csv).
 
 ---
-
 ## Run it
 
 ```bash
@@ -63,38 +68,8 @@ npm run seed        # 120 synthetic reports + real OSM facilities (idempotent; -
 npm run dev
 ```
 
-Requires `.env.local` with `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
-`SUPABASE_SERVICE_ROLE_KEY`.
-
----
-
-## AI prompt trail (rubric disclosure)
-
-Three distinct AI calls. Full prompt text lives in [`src/lib/prompts.ts`](src/lib/prompts.ts)
-and is reproduced verbatim there — nothing is paraphrased for this README.
-
-### 1. Waste classification (`CLASSIFY_PROMPT`)
-- **In:** before photo
-- **Out:** `{waste_type, severity, confidence, one_line_description}` — enum-constrained,
-  severity anchored 1–5 in the prompt
-- **Verified:** returned valid enum + in-range severity on a live call
-
-### 2. Complaint generation (`COMPLAINT_PROMPT`)
-- **In:** waste_type, severity, is_recurring, ward name, lat/lng
-- **Out:** 2–4 sentence neutral civic complaint, user-editable
-- **Verified:** produced usable administrative-register text on a live call
-
-### 3. Before/after verification (`VERIFY_PROMPT`) — the differentiator
-- **In:** before photo + after photo + the original classification
-- **Out:** `{result: verified_clean|ambiguous|not_clean, confidence, reasoning}`
-- **Design note:** the prompt explicitly instructs the model to return `ambiguous` when
-  the photos don't appear to show the same location. That's the most likely way this step
-  gets gamed, so it's handled in the prompt rather than left to chance. It also states
-  that lighting and angle differences alone are *not* evidence — the known false-negative
-  failure mode.
-- **Verified live, both directions:**
-  - cleaned pair → `verified_clean`, confidence 0.95
-  - **identical before/after → `not_clean`, confidence 0.98**
+Requires `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
+`SUPABASE_SERVICE_ROLE_KEY`, and `CLEANLOOP_AI_PROVIDER=tm` in the environment.
 
 ---
 
@@ -120,11 +95,11 @@ never produce a green pin regardless of confidence.
 Next.js 16 (App Router, TS, Tailwind v4)  →  Vercel
 Supabase Postgres + Storage               →  ap-south-1 Mumbai
 MapLibre GL + OpenStreetMap tiles         →  no API key, 3D extruded severity
-AiProvider interface                      →  provider-agnostic
+Teachable Machine classifier (tfjs)       →  runs server-side, no API key
 ```
 
 - `src/lib/ai.ts` — provider interface + registry + stub. **The only file a provider swap touches.**
-- `src/lib/prompts.ts` — all three prompts and their JSON schemas, verbatim
+- `src/lib/providers/tm.ts` — loads `model/`, preprocesses like Teachable Machine, classifies
 - `src/lib/supabase.ts` — clients, `findRecurring()` and `findVerifiedNearby()` geo queries
 - `src/lib/durability.ts` — did a cleanup last? pure functions, no query, no model call
 - `src/lib/wards.ts` — locality lookup, haversine, Bengaluru bounds check
@@ -164,9 +139,11 @@ These are real and we'd rather name them than have a judge find them.
    before/after pair is two *different* photographs — not one location cleaned. Every
    seeded resolution carries `is_genuine_pair=false` and the UI says so on the case. The
    574 mapped waste facilities are real OpenStreetMap nodes, not synthetic.
-5. **Model latency is 3–30s and variable.** Measured on the free tier, which also
-   rate-limits. Whichever provider is wired needs optimistic UI and backoff, or the demo
-   risks a long spinner on stage.
+5. **The classifier is small and its data is thin in places.** Organic (96 photos) and
+   hazardous (114) are under-represented and mostly not Bengaluru street scenes; mixed is
+   often labelled plastic. A wrong type is cosmetic — the safety-relevant check is
+   waste vs. not-waste, backed by the GPS rule. Browser GPS can be spoofed; photo EXIF or a
+   moderator queue is the upgrade.
 
 ---
 

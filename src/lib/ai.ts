@@ -14,19 +14,18 @@
  * so changing provider is this one file and nothing else.
  *
  * Two implementations are registered:
- *   stub      — deterministic, no network. The default, and what CI and seeding use.
- *   anthropic — live (./providers/anthropic). Selected with CLEANLOOP_AI_PROVIDER=anthropic.
+ *   stub — deterministic, no network. The default, and what CI and seeding use.
+ *   tm   — Teachable Machine image classifier run on the server (./providers/tm),
+ *          model files in /model. No key, no network. CLEANLOOP_AI_PROVIDER=tm.
  *
  * `stubProvider` is NOT dead code and should not be deleted. It keeps the app fully
  * demoable with no key, no spend and no network, and it is what `isLive: false` drives:
  * the UI states plainly that a result is simulated rather than presenting a stub verdict
  * as a real one.
  *
- * The prompts in ./prompts.ts were verified live on 2026-08-21 against the two models this
- * app now uses, on real photographs: four integrity cases, all correct. The two that carry
- * the product are (a) a dirty before paired with a *different* clean street must return
- * `ambiguous`, never `verified_clean`, and (b) the same scene re-photographed with waste
- * still present must return `not_clean`. Both held.
+ * The tm model was checked on 2026-10-01 against 115 held-out photos it never trained on:
+ * 105 correct on waste vs. not-waste, 4 waste photos scored clean enough to turn green.
+ * Those 4 are why the resolve route also requires a GPS fix within 50m of the report.
  *
  * TO ADD ANOTHER PROVIDER:
  *   1. implement AiProvider (three methods)
@@ -39,7 +38,8 @@ import type { Classification, ComplaintInput, Verification } from "./types";
 // Explicit .ts extension: `npm run selfcheck` loads this file through Node's real ESM loader
 // (`--experimental-strip-types`), which does not do the extensionless resolution the bundler
 // does. Without it the whole self-check suite dies before its first assertion.
-import { anthropicProvider } from "./providers/anthropic.ts";
+import { tmProvider } from "./providers/tm.ts";
+import { complaintText } from "./complaint.ts";
 
 export interface ImageInput {
   /** base64-encoded image bytes, no data: prefix */
@@ -113,17 +113,7 @@ export const stubProvider: AiProvider = {
   },
 
   async complaint(input) {
-    const where = input.ward_name
-      ? `${input.ward_name} (${input.lat.toFixed(5)}, ${input.lng.toFixed(5)})`
-      : `${input.lat.toFixed(5)}, ${input.lng.toFixed(5)}`;
-    const recurring = input.is_recurring
-      ? " This location has been reported previously and the problem has recurred."
-      : "";
-    return (
-      `An accumulation of ${input.waste_type} waste (severity ${input.severity} of 5) ` +
-      `has been observed at ${where}.${recurring} ` +
-      `Requesting inspection and clearance by the concerned ward office.`
-    );
+    return complaintText(input);
   },
 
   async verify(before, after) {
@@ -145,7 +135,7 @@ export const stubProvider: AiProvider = {
 
 const providers: Record<string, AiProvider> = {
   stub: stubProvider,
-  anthropic: anthropicProvider,
+  tm: tmProvider,
 };
 
 export function getProvider(): AiProvider {

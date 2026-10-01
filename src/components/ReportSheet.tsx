@@ -71,6 +71,8 @@ export default function ReportSheet({
   const [result, setResult] = useState<Report | null>(null);
   const [aiIsLive, setAiIsLive] = useState(true);
   const [wasRecurring, setWasRecurring] = useState(false);
+  // The image model names the waste but cannot judge how bad it is, so the reporter does.
+  const [severity, setSeverity] = useState<number | null>(null);
   const [step, setStep] = useState(0);
 
   // Advance the visible work steps while the request is genuinely in flight.
@@ -115,7 +117,7 @@ export default function ReportSheet({
   }
 
   async function submit() {
-    if (!file || !coords) return;
+    if (!file || !coords || !severity) return;
     setStage("uploading");
     setMessage(null);
     try {
@@ -127,6 +129,7 @@ export default function ReportSheet({
       fd.set("photo", await downscalePhoto(file));
       fd.set("lat", String(coords.lat));
       fd.set("lng", String(coords.lng));
+      fd.set("severity", String(severity));
       fd.set("session_id", getSessionId());
 
       const res = await fetch("/api/reports", { method: "POST", body: fd });
@@ -154,7 +157,7 @@ export default function ReportSheet({
    * not just presence.
    */
   const coordsValid = Boolean(coords && isInBengaluru(coords.lat, coords.lng));
-  const canSubmit = Boolean(file) && coordsValid && stage !== "uploading";
+  const canSubmit = Boolean(file) && coordsValid && Boolean(severity) && stage !== "uploading";
 
   /*
    * A disabled button with no stated reason makes the user hunt for what they missed.
@@ -166,7 +169,9 @@ export default function ReportSheet({
       ? t("needs_location")
       : !coordsValid
         ? t("location_outside")
-        : null;
+        : !severity
+          ? t("needs_severity")
+          : null;
 
   /* Desktop has no camera; don't promise one. */
   const [hasCamera, setHasCamera] = useState(true);
@@ -325,6 +330,30 @@ export default function ReportSheet({
                 </div>
               )}
             </div>
+          </div>
+
+          {/* --- step 3: severity --- */}
+          <div>
+            <StepLabel n={3} label={t("severity_label")} done={Boolean(severity)} />
+            <div className="mt-2 flex gap-2" role="radiogroup" aria-label={t("severity_label")}>
+              {[1, 2, 3, 4, 5].map((n) => (
+                <button
+                  key={n}
+                  role="radio"
+                  aria-checked={severity === n}
+                  aria-label={t("severity_of", { n })}
+                  onClick={() => setSeverity(n)}
+                  className={`flex-1 rounded-2xl border py-3 text-sm tabular-nums transition-colors ${
+                    severity === n
+                      ? "border-white bg-white text-black"
+                      : "border-white/12 bg-white/[0.05] text-white/85"
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-[11px] text-white/55">{t("severity_hint")}</p>
           </div>
 
           {/* LABOR ILLUSION: name the work instead of showing a blank spinner */}

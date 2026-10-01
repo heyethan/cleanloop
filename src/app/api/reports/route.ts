@@ -9,7 +9,7 @@
  * created_at is Postgres timestamptz serialised as ISO-8601 (e.g. "2026-08-20T14:03:11.482Z").
  * User instruction, verbatim: "just proceed with building, we'll handle the API part later"
  *
- * POST accepts multipart/form-data: photo (File), lat, lng, session_id.
+ * POST accepts multipart/form-data: photo (File), lat, lng, severity (1-5), session_id.
  * Returns the created report row.
  */
 
@@ -97,6 +97,12 @@ export async function POST(req: Request) {
       );
     }
 
+    // The image classifier can name the waste but cannot judge how bad it is; the reporter does.
+    const severity = Number(form.get("severity"));
+    if (!Number.isInteger(severity) || severity < 1 || severity > 5) {
+      return NextResponse.json({ error: "severity must be 1 to 5" }, { status: 400 });
+    }
+
     const db = serverClient();
     const ai = getProvider();
 
@@ -142,7 +148,7 @@ export async function POST(req: Request) {
 
     const complaintText = await ai.complaint({
       waste_type: classification.waste_type,
-      severity: classification.severity,
+      severity,
       description: classification.one_line_description,
       is_recurring: prior !== null,
       ward_name: ward?.name ?? null,
@@ -158,7 +164,7 @@ export async function POST(req: Request) {
         lng,
         ward_id: ward?.id ?? null,
         waste_type: classification.waste_type,
-        severity: classification.severity,
+        severity,
         is_recurring: prior !== null,
         recurring_of_report_id: prior?.id ?? null,
         status: "open",

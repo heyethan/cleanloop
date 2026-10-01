@@ -10,13 +10,18 @@
  * (e.g. "2026-08-20T14:03:11.482Z").
  * User instruction, verbatim: "just proceed with building, we'll handle the API part later"
  *
- * Accepts multipart/form-data: photo (File), session_id.
+ * Accepts multipart/form-data: photo (File), session_id, and lat/lng from the device GPS
+ * (optional; without them a clean photo is held for review rather than turned green).
  */
 
 import { NextResponse } from "next/server";
 import { serverClient, uploadPhoto } from "@/lib/supabase";
 import { getProvider, statusFromVerification } from "@/lib/ai";
 import type { Report } from "@/lib/types";
+import { haversineMetres } from "@/lib/wards";
+
+/** How close the resolver's GPS fix must be to the reported spot for a green verdict. */
+const RESOLVE_RADIUS_METRES = 50;
 
 /** See the note in ../../route.ts — the real platform ceiling is ~4.5 MB, not 10. */
 const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
@@ -116,11 +121,32 @@ export async function POST(
     const beforeBytes = new Uint8Array(await beforeRes.arrayBuffer());
     const beforeMime = beforeRes.headers.get("content-type") ?? "image/jpeg";
 
-    const verification = await ai.verify(
+    let verification = await ai.verify(
       { data: Buffer.from(beforeBytes).toString("base64"), mimeType: beforeMime },
       { data: Buffer.from(afterBytes).toString("base64"), mimeType: photo.type },
       { waste_type: report.waste_type, severity: report.severity },
     );
+
+    /*
+     * The image model judges one photo; it cannot tell a clean street here from a clean
+     * street anywhere. So a green verdict also needs the device's GPS fix to be at the spot.
+     * No fix (denied, or a desktop) or too far away holds the case for review instead.
+     * ponytail: browser GPS can be spoofed with devtools; photo EXIF or a moderator is the upgrade.
+     */
+    const atLat = Number(form.get("lat"));
+    const atLng = Number(form.get("lng"));
+    const hasFix = form.get("lat") !== null && Number.isFinite(atLat) && Number.isFinite(atLng);
+    const metres = hasFix ? haversineMetres(atLat, atLng, report.lat, report.lng) : null;
+    if (verification.result === "verified_clean" && (metres === null || metres > RESOLVE_RADIUS_METRES)) {
+      verification = {
+        result: "ambiguous",
+        confidence: verification.confidence,
+        reasoning:
+          metres === null
+            ? "The photo looks clean, but we couldn't confirm it was taken at this spot. Allow location access and try again."
+            : `The photo looks clean, but it was taken ${Math.round(metres)}m from the reported spot.`,
+      };
+    }
 
     const newStatus = statusFromVerification(verification);
     const verifiedAt = newStatus === "verified_resolved" ? new Date().toISOString() : null;
@@ -145,11 +171,10 @@ export async function POST(
          * citizen submission was stored as "not a genuine pair" and the UI labelled it an
          * example pair. Only seeded rows are meant to carry false.
          *
-         * Derived from the verdict rather than a separate model field, because VERIFY_PROMPT
-         * already routes "these are not the same place" to `ambiguous` specifically. A
-         * verified_clean or not_clean verdict means the model did assess one location; only
-         * `ambiguous` covers the mismatch case. It also errs strict: a same-place pair the
-         * model could not read is treated as unproven, which is the right bias here.
+         * Derived from the verdict: "taken somewhere else or no GPS fix" is routed to
+         * `ambiguous` above, so only `ambiguous` covers the not-the-same-place case. It also
+         * errs strict: an after photo the model could not read is treated as unproven,
+         * which is the right bias here.
          */
         is_genuine_pair: verification.result !== "ambiguous",
       })

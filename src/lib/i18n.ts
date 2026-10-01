@@ -75,6 +75,8 @@ export const STRINGS: Record<Lang, Dict> = {
     days_ago: "reported {n}d ago",
     recurring: "Recurring",
     severity_of: "Severity {n}/5",
+    needs_severity: "Pick how bad it is",
+    severity_hint: "1 = a few items · 5 = a heap blocking the road",
     // report flow
     report_cta: "Report a dump spot",
     new_report: "New report",
@@ -226,6 +228,8 @@ export const STRINGS: Record<Lang, Dict> = {
     days_ago: "{n} ದಿನಗಳ ಹಿಂದೆ ವರದಿ",
     recurring: "ಪುನರಾವರ್ತಿತ",
     severity_of: "ತೀವ್ರತೆ {n}/5",
+    needs_severity: "ಎಷ್ಟು ತೀವ್ರ ಎಂದು ಆರಿಸಿ",
+    severity_hint: "1 = ಕೆಲವು ವಸ್ತುಗಳು · 5 = ರಸ್ತೆ ತಡೆಯುವ ರಾಶಿ",
     // report flow
     report_cta: "ಕಸದ ಸ್ಥಳವನ್ನು ವರದಿ ಮಾಡಿ",
     new_report: "ಹೊಸ ವರದಿ",

@@ -80,6 +80,12 @@ export default function ResolveSheet({
       // Same 413 trap as the report flow — an "after" photo is just as likely to be 8 MB.
       fd.set("photo", await downscalePhoto(file));
       fd.set("session_id", getSessionId());
+      // A clean photo only turns green if it was taken at the spot. No fix = held for review.
+      const fix = await currentPosition();
+      if (fix) {
+        fd.set("lat", String(fix.latitude));
+        fd.set("lng", String(fix.longitude));
+      }
       const res = await fetch(`/api/reports/${report.id}/resolve`, {
         method: "POST",
         body: fd,
@@ -447,4 +453,16 @@ function Notice({
       {children}
     </div>
   );
+}
+
+/** One GPS fix, or null if the browser has none, the user says no, or it takes too long. */
+function currentPosition(): Promise<GeolocationCoordinates | null> {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve(pos.coords),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 10_000 },
+    );
+  });
 }
