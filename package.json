@@ -3,17 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "infisical run --path /hackathon --projectId 888b8455-76b2-4a80-95a8-ed5bedfbd8eb -- next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "selfcheck": "node --experimental-strip-types scripts/selfcheck.ts",
-    "seed": "node --experimental-strip-types --env-file=.env.local scripts/seed.ts",
+    "seed": "infisical run --path /hackathon --projectId 888b8455-76b2-4a80-95a8-ed5bedfbd8eb -- node --experimental-strip-types scripts/seed.ts",
     "wards": "node --experimental-strip-types scripts/fetch-ward-boundaries.ts",
     "predev": "node ./scripts/copy-maplibre-worker.mjs",
     "prebuild": "node ./scripts/copy-maplibre-worker.mjs",
     "photos:candidates": "node --experimental-strip-types scripts/curate-photos.ts candidates",
-    "photos:apply": "node --experimental-strip-types --env-file=.env.local scripts/curate-photos.ts apply"
+    "photos:apply": "infisical run --path /hackathon --projectId 888b8455-76b2-4a80-95a8-ed5bedfbd8eb -- node --experimental-strip-types scripts/curate-photos.ts apply"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
