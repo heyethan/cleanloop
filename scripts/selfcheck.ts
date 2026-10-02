@@ -19,6 +19,7 @@ import { wardAt, wardMeta } from "../src/lib/gbaWards.ts";
 import { pickOfficial, type Official } from "../src/lib/officials.ts";
 import { signAction, verifyAction } from "../src/lib/actionToken.ts";
 import { isReporter, hashCode } from "../src/lib/reporter.ts";
+import { slaState, median } from "../src/lib/sla.ts";
 import {
   statusFromVerification,
   stubProvider,
@@ -271,6 +272,32 @@ check("isReporter: wrong/missing session and code are refused, and null never ma
   assert.equal(isReporter(r, null, null), false);
   assert.equal(isReporter({ reporter_session_id: null, tracking_code_hash: null }, null, null), false);
   assert.equal(isReporter({ reporter_session_id: null, tracking_code_hash: null }, "", ""), false);
+});
+
+console.log("SLA:");
+const cfg = { ack_hours: 24, resolve_hours: 72 };
+const t0 = Date.parse("2026-10-01T00:00:00Z");
+const at = (h: number) => t0 + h * 3_600_000;
+const base = { created_at: new Date(t0).toISOString(), acknowledged_at: null, status: "open" as const, closed_at: null, verified_at: null };
+check("slaState: fresh case is on time", () => {
+  const s = slaState(base, cfg, at(10));
+  assert.equal(s.ackOverdue, false);
+  assert.equal(s.resolveOverdue, false);
+});
+check("slaState: unacknowledged past 24h is ack-overdue; past 72h unresolved is resolve-overdue", () => {
+  assert.equal(slaState(base, cfg, at(25)).ackOverdue, true);
+  assert.equal(slaState(base, cfg, at(73)).resolveOverdue, true);
+});
+check("slaState: acknowledged in time is never ack-overdue; verified/closed cases are never resolve-overdue", () => {
+  const acked = { ...base, acknowledged_at: new Date(at(5)).toISOString() };
+  assert.equal(slaState(acked, cfg, at(100)).ackOverdue, false);
+  const cleaned = { ...base, status: "awaiting_confirmation" as const, verified_at: new Date(at(50)).toISOString() };
+  assert.equal(slaState(cleaned, cfg, at(100)).resolveOverdue, false);
+});
+check("median: odd, even, empty", () => {
+  assert.equal(median([3, 1, 2]), 2);
+  assert.equal(median([4, 1, 2, 3]), 2.5);
+  assert.equal(median([]), null);
 });
 
 console.log(`\n${passed} checks passed`);
