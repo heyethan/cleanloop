@@ -591,6 +591,9 @@ export default function Home() {
                     <option value="claimed" className="bg-neutral-900">
                       {t("status_claimed")}
                     </option>
+                    <option value="awaiting_confirmation" className="bg-neutral-900">
+                      {t("status_awaiting")}
+                    </option>
                     <option value="verified_resolved" className="bg-neutral-900">
                       {t("status_verified")}
                     </option>

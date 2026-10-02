@@ -23,6 +23,9 @@ import { haversineMetres } from "@/lib/wards";
 /** How close the resolver's GPS fix must be to the reported spot for a green verdict. */
 const RESOLVE_RADIUS_METRES = 50;
 
+/** Days the reporter has to confirm or dispute a verified cleanup (mirrors sla_config). */
+const CONFIRM_DAYS = 3;
+
 /** See the note in ../../route.ts — the real platform ceiling is ~4.5 MB, not 10. */
 const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
 const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp"];
@@ -102,9 +105,14 @@ export async function POST(
     }
     const report = reportRow as Report;
 
-    if (report.status === "verified_resolved") {
+    if (report.status === "verified_resolved" || report.status === "awaiting_confirmation") {
       return NextResponse.json(
-        { error: "report is already verified resolved" },
+        {
+          error:
+            report.status === "verified_resolved"
+              ? "report is already verified resolved"
+              : "this cleanup is already verified and waiting for the reporter to confirm it",
+        },
         { status: 409 },
       );
     }
@@ -149,7 +157,7 @@ export async function POST(
     }
 
     const newStatus = statusFromVerification(verification);
-    const verifiedAt = newStatus === "verified_resolved" ? new Date().toISOString() : null;
+    const verifiedAt = newStatus === "awaiting_confirmation" ? new Date().toISOString() : null;
 
     // spec §3 Flow B / chosen option: anyone may resolve, but self-resolution is recorded.
     const isSelfResolved =
@@ -184,7 +192,14 @@ export async function POST(
 
     const { error: updErr } = await db
       .from("reports")
-      .update({ status: newStatus })
+      .update({
+        status: newStatus,
+        // A verified cleanup waits CONFIRM_DAYS for the reporter before it auto-closes.
+        ...(verifiedAt && {
+          verified_at: verifiedAt,
+          confirm_due_at: new Date(Date.now() + CONFIRM_DAYS * 86_400_000).toISOString(),
+        }),
+      })
       .eq("id", report.id);
     if (updErr) throw new Error(updErr.message);
 

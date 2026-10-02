@@ -8,7 +8,7 @@ export type WasteType =
   | "hazardous"
   | "other";
 
-export type ReportStatus = "open" | "claimed" | "verified_resolved";
+export type ReportStatus = "open" | "claimed" | "awaiting_confirmation" | "verified_resolved";
 
 export type VerificationResult = "verified_clean" | "ambiguous" | "not_clean";
 

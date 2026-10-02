@@ -13,6 +13,7 @@
 
 import assert from "node:assert/strict";
 import { splitSql } from "./sql-split.ts";
+import { nextStatus } from "../src/lib/lifecycle.ts";
 import { haversineMetres, nearestWard, wardName, WARDS } from "../src/lib/wards.ts";
 import {
   statusFromVerification,
@@ -88,10 +89,10 @@ check("all ward coords are plausibly in Bengaluru", () => {
 
 console.log("verification threshold:");
 
-check("high-confidence clean flips to verified_resolved (green)", () => {
+check("high-confidence clean waits for the reporter (awaiting_confirmation)", () => {
   assert.equal(
     statusFromVerification({ result: "verified_clean", confidence: 0.95, reasoning: "" }),
-    "verified_resolved",
+    "awaiting_confirmation",
   );
 });
 
@@ -123,7 +124,7 @@ check("threshold boundary is inclusive", () => {
       confidence: VERIFY_CONFIDENCE_THRESHOLD,
       reasoning: "",
     }),
-    "verified_resolved",
+    "awaiting_confirmation",
   );
 });
 
@@ -168,6 +169,29 @@ check("splitSql: splits on top-level semicolons, drops empties and comments-only
 check("splitSql: keeps $$ bodies and quoted semicolons intact", () => {
   const sql = "do $$ begin perform 1; perform 2; end $$;\ninsert into t values ('a;b');";
   assert.deepEqual(splitSql(sql), ["do $$ begin perform 1; perform 2; end $$", "insert into t values ('a;b')"]);
+});
+
+console.log("lifecycle:");
+check("timeline-only events never change status", () => {
+  for (const k of ["received", "sent", "acknowledged", "assigned", "eta_set", "escalated"] as const)
+    assert.equal(nextStatus("open", k), "open");
+  assert.equal(nextStatus("claimed", "acknowledged"), "claimed");
+});
+check("verified goes to awaiting_confirmation, never straight to resolved", () => {
+  assert.equal(nextStatus("open", "verified"), "awaiting_confirmation");
+  assert.equal(nextStatus("claimed", "verified"), "awaiting_confirmation");
+});
+check("confirm / auto-close resolve; dispute reopens", () => {
+  assert.equal(nextStatus("awaiting_confirmation", "confirmed"), "verified_resolved");
+  assert.equal(nextStatus("awaiting_confirmation", "auto_closed"), "verified_resolved");
+  assert.equal(nextStatus("awaiting_confirmation", "disputed"), "open");
+  assert.equal(nextStatus("verified_resolved", "reopened"), "open");
+});
+check("impossible transitions are rejected (null)", () => {
+  assert.equal(nextStatus("open", "confirmed"), null);
+  assert.equal(nextStatus("verified_resolved", "verified"), null);
+  assert.equal(nextStatus("verified_resolved", "acknowledged"), null);
+  assert.equal(nextStatus("open", "reopened"), null);
 });
 
 console.log(`\n${passed} checks passed`);

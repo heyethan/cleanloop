@@ -62,6 +62,7 @@ export const STRINGS: Record<Lang, Dict> = {
     status_open: "Open",
     status_claimed: "Held for review",
     status_verified: "Verified clean",
+    status_awaiting: "Cleaned, awaiting confirmation",
     // waste types (mirror the DB enum)
     waste_mixed: "Mixed",
     waste_plastic: "Plastic",
@@ -215,6 +216,7 @@ export const STRINGS: Record<Lang, Dict> = {
     status_open: "ಬಾಕಿ",
     status_claimed: "ಪರಿಶೀಲನೆಗೆ ತಡೆಹಿಡಿದ",
     status_verified: "ಸ್ವಚ್ಛ ಎಂದು ಪರಿಶೀಲಿಸಲಾಗಿದೆ",
+    status_awaiting: "ಸ್ವಚ್ಛಗೊಂಡಿದೆ, ದೃಢೀಕರಣ ಬಾಕಿ",
     // waste types (mirror the DB enum)
     waste_mixed: "ಮಿಶ್ರ",
     waste_plastic: "ಪ್ಲಾಸ್ಟಿಕ್",

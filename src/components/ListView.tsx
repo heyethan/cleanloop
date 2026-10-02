@@ -42,12 +42,15 @@ const SORT_STRETCH_MS = 170;
 const STATUS_COLOUR: Record<ReportStatus, string> = {
   open: "#ff3b30",
   claimed: "#ffb020",
+  // Cleaned and verified, waiting on the reporter: paler than the closed green.
+  awaiting_confirmation: "#8fe3bf",
   verified_resolved: "#22c98a",
 };
 
 const STATUS_KEY: Record<ReportStatus, string> = {
   open: "status_open",
   claimed: "status_claimed",
+  awaiting_confirmation: "status_awaiting",
   verified_resolved: "status_verified",
 };
 
@@ -96,7 +99,8 @@ export default function ListView({
       // Worst first: unresolved before verified, then severity desc, then oldest first —
       // a severe spot ignored for three weeks outranks a severe spot reported this morning,
       // and a spot that is already clean is never "worst".
-      const done = (r: (typeof rows)[number]) => (r.status === "verified_resolved" ? 1 : 0);
+      const done = (r: (typeof rows)[number]) =>
+        r.status === "verified_resolved" || r.status === "awaiting_confirmation" ? 1 : 0;
       rows.sort(
         (a, b) =>
           done(a) - done(b) ||
@@ -234,7 +238,7 @@ export default function ListView({
                         list's payload does not carry, so rather than invent one the
                         label now says what the number actually measures.
                       */}
-                      {r.status === "verified_resolved"
+                      {r.status === "verified_resolved" || r.status === "awaiting_confirmation"
                         ? t("days_ago", { n: daysSince(r.created_at) })
                         : t("days_open", { n: daysSince(r.created_at) })}
                     </span>

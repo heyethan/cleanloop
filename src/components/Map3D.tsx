@@ -151,6 +151,8 @@ const PILLAR_GROW_MS = 1100;
 export const STATUS_COLOUR: Record<ReportStatus, string> = {
   open: "#ff3b30",
   claimed: "#ffb020",
+  // Cleaned and verified, waiting on the reporter: paler than the closed green.
+  awaiting_confirmation: "#8fe3bf",
   verified_resolved: "#22c98a",
 };
 

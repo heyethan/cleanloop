@@ -109,8 +109,11 @@ export default function ResolveSheet({
     }
   }
 
-  const isGreen = status === "verified_resolved";
-  const alreadyDone = report.status === "verified_resolved";
+  // A clean verdict now lands in awaiting_confirmation: it is verified, the reporter just
+  // hasn't signed it off yet. Both count as green here.
+  const isGreen = status === "awaiting_confirmation" || status === "verified_resolved";
+  const alreadyDone =
+    report.status === "verified_resolved" || report.status === "awaiting_confirmation";
 
   return (
     <Sheet

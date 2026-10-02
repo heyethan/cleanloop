@@ -158,8 +158,12 @@ export function getProvider(): AiProvider {
  */
 export const VERIFY_CONFIDENCE_THRESHOLD = 0.75;
 
-export function statusFromVerification(v: Verification): "claimed" | "verified_resolved" {
+/**
+ * A clean verdict no longer closes the case on its own: it waits for the reporter to confirm
+ * (or for the confirmation window to lapse). See src/lib/lifecycle.ts.
+ */
+export function statusFromVerification(v: Verification): "claimed" | "awaiting_confirmation" {
   return v.result === "verified_clean" && v.confidence >= VERIFY_CONFIDENCE_THRESHOLD
-    ? "verified_resolved"
+    ? "awaiting_confirmation"
     : "claimed";
 }
