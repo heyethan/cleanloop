@@ -9,6 +9,7 @@
  * Imports and "[test]" rows are excluded.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { selectAll } from "./supabase.ts";
 import { median, slaState } from "./sla.ts";
 import type { Official } from "./officials.ts";
 
@@ -63,12 +64,19 @@ function summarise(name: string, rows: Row[], closes: Map<string, string>, cfg: 
 }
 
 export async function performance(db: SupabaseClient, now = Date.now()) {
-  const [{ data: rows }, { data: events }, { data: officials }, { data: cfgRows }] = await Promise.all([
-    db
-      .from("reports")
-      .select("id, created_at, acknowledged_at, verified_at, closed_at, status, category, corporation, zone, reopen_count, is_seed, description, source")
-      .eq("source", "cleanloop"),
-    db.from("report_events").select("report_id, kind").in("kind", ["confirmed", "auto_closed", "disputed"]),
+  const [rows, events, { data: officials }, { data: cfgRows }] = await Promise.all([
+    selectAll((from, to) =>
+      db
+        .from("reports")
+        .select("id, created_at, acknowledged_at, verified_at, closed_at, status, category, corporation, zone, reopen_count, is_seed, description, source")
+        .eq("source", "cleanloop")
+        .order("id")
+        .range(from, to),
+    ),
+    // Ordered by time so the LAST outcome per case wins (a case can be disputed, then confirmed).
+    selectAll((from, to) =>
+      db.from("report_events").select("report_id, kind, created_at").in("kind", ["confirmed", "auto_closed", "disputed"]).order("created_at").order("id").range(from, to),
+    ),
     db.from("officials").select("*").order("id"),
     db.from("sla_config").select("*"),
   ]);

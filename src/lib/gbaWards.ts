@@ -58,6 +58,11 @@ export function wardAt(lat: number, lng: number): GbaWard | null {
 
 const byId = new Map(features.map((f) => [f.properties.id, f.properties]));
 
+/** Zone names per corporation, straight from the delimitation (no database query, no row cap). */
+export function zonesOf(corporation?: string): string[] {
+  return [...new Set(features.filter((f) => !corporation || f.properties.corporation === corporation).map((f) => f.properties.zone_name))].sort();
+}
+
 export function wardMeta(id: string): GbaWard | null {
   return byId.get(id) ?? null;
 }

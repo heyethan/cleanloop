@@ -12,6 +12,7 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { serverClient } from "@/lib/supabase";
 import { slaState } from "@/lib/sla";
+import { zonesOf } from "@/lib/gbaWards";
 
 const CORPS = ["Central", "East", "North", "South", "West"];
 
@@ -24,28 +25,28 @@ export default async function OpsPage({ searchParams }: { searchParams: Promise<
   const db = serverClient();
   let q = db
     .from("reports")
-    .select("id, created_at, acknowledged_at, verified_at, closed_at, status, category, waste_type, road_issue, severity, corporation, zone, gba_ward_id, photo_before_url, is_seed, is_recurring, reopen_count, assigned_to, eta_at, description")
+    .select("id, created_at, acknowledged_at, verified_at, closed_at, status, category, waste_type, road_issue, severity, corporation, zone, gba_ward_id, photo_before_url, is_seed, is_recurring, reopen_count, assigned_to, eta_at, description, source")
     .in("status", ["open", "claimed"])
     .or("source.eq.cleanloop,is_public.eq.true")
     .limit(300);
   if (corp && CORPS.includes(corp)) q = q.eq("corporation", corp);
   if (zone) q = q.eq("zone", zone);
-  const [{ data: rows }, { data: cfgRows }, { data: zoneRows }] = await Promise.all([
-    q,
-    db.from("sla_config").select("*"),
-    db.from("reports").select("corporation, zone").not("zone", "is", null).limit(2000),
-  ]);
+  const [{ data: rows }, { data: cfgRows }] = await Promise.all([q, db.from("sla_config").select("*")]);
   const cfg = Object.fromEntries((cfgRows ?? []).map((c) => [c.category, c]));
   const now = requestTime();
   const cases = (rows ?? [])
-    .map((r) => ({ ...r, sla: slaState(r, cfg[r.category ?? "waste"] ?? cfg.waste, now) }))
+    // Our deadlines only apply to cases reported here; imported cases are listed, never "overdue".
+    .map((r) => ({
+      ...r,
+      sla: r.source === "cleanloop" ? slaState(r, cfg[r.category ?? "waste"] ?? cfg.waste, now) : { resolveOverdue: false },
+    }))
     .sort(
       (a, b) =>
         Number(b.sla.resolveOverdue) - Number(a.sla.resolveOverdue) ||
         b.severity - a.severity ||
         Date.parse(a.created_at) - Date.parse(b.created_at),
     );
-  const zones = [...new Set((zoneRows ?? []).filter((z) => !corp || z.corporation === corp).map((z) => z.zone as string))].sort();
+  const zones = zonesOf(corp);
   const chip = (href: string, label: string, on: boolean) => (
     <Link
       key={label}
@@ -76,7 +77,8 @@ export default async function OpsPage({ searchParams }: { searchParams: Promise<
       )}
 
       <p className="mt-4 text-xs text-white/50">
-        {cases.length} open · {cases.filter((c) => c.sla.resolveOverdue).length} past deadline
+        {cases.length >= 300 ? "Showing 300" : cases.length} open · {cases.filter((c) => c.sla.resolveOverdue).length} past
+        deadline{cases.length >= 300 && " · pick a corporation and zone to see all"}
       </p>
       <ul className="mt-2 space-y-2">
         {cases.map((c) => (
@@ -92,6 +94,9 @@ export default async function OpsPage({ searchParams }: { searchParams: Promise<
                   <span className="rounded-full bg-[#ffb020]/20 px-2 py-0.5 text-[10px] text-[#ffd591]">Keeps refilling</span>
                 )}
                 {c.is_seed && <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/55">Demo</span>}
+                {c.source === "nammakasa" && (
+                  <span className="rounded-full bg-[#3f8cff]/20 px-2 py-0.5 text-[10px] text-[#a9c8ff]">via NammaKasa</span>
+                )}
               </div>
               <div className="mt-0.5 truncate text-xs text-white/55">
                 {c.zone} · {c.corporation} · open {Math.floor((now - Date.parse(c.created_at)) / 86_400_000)}d

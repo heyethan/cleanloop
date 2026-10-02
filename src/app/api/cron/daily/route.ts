@@ -10,7 +10,7 @@
  * no official is ever emailed about synthetic data.
  */
 import { NextResponse } from "next/server";
-import { serverClient } from "@/lib/supabase";
+import { serverClient, selectAll } from "@/lib/supabase";
 import { transition } from "@/lib/events";
 import { slaState } from "@/lib/sla";
 import { sendOnce } from "@/lib/mailer";
@@ -49,7 +49,7 @@ export async function GET(req: Request) {
         .eq("source", "cleanloop"),
       db.from("sla_config").select("*"),
       db.from("officials").select("*").order("id"),
-      db.from("report_events").select("report_id").eq("kind", "escalated"),
+      selectAll<{ report_id: string }>((from, to) => db.from("report_events").select("report_id").eq("kind", "escalated").order("id").range(from, to)).then((data) => ({ data })),
       db.from("email_log").select("id", { count: "exact", head: true }).gte("sent_at", `${today}T00:00:00Z`),
     ]);
   const cfg = Object.fromEntries((cfgRows ?? []).map((c) => [c.category, c]));

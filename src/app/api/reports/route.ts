@@ -101,7 +101,7 @@ async function createReport(req: Request) {
       return NextResponse.json({ error: "photo is empty" }, { status: 400 });
     }
     if (photo.size > MAX_PHOTO_BYTES) {
-      return NextResponse.json({ error: "photo too large (max 10MB)" }, { status: 413 });
+      return NextResponse.json({ error: "photo too large (max 4 MB)" }, { status: 413 });
     }
     if (!ALLOWED_MIME.includes(photo.type)) {
       return NextResponse.json(
@@ -288,7 +288,7 @@ async function createReport(req: Request) {
      * Done after the insert so a failure here cannot lose the citizen's report.
      */
     let refill: { reopened_report_id: string; ward_id: string | null } | null = null;
-    const previouslyVerified = await findVerifiedNearby(db, lat, lng);
+    const previouslyVerified = isTest ? null : await findVerifiedNearby(db, lat, lng);
     if (previouslyVerified) {
       await transition(db, previouslyVerified.id, "reopened", "system", {
         data: { reason: "waste reported again within 50m", by_report: data.id },

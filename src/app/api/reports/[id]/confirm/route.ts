@@ -44,6 +44,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     let photoUrl: string | null = null;
     if (photo instanceof File && photo.size > 0) {
       if (photo.size > MAX_PHOTO_BYTES) return NextResponse.json({ error: "photo too large" }, { status: 413 });
+      // Same allowlist as the report/resolve uploads: the bucket is public and keeps the content type.
+      if (!["image/jpeg", "image/png", "image/webp"].includes(photo.type)) {
+        return NextResponse.json({ error: `unsupported image type "${photo.type}"` }, { status: 415 });
+      }
       photoUrl = await uploadPhoto(db, new Uint8Array(await photo.arrayBuffer()), photo.type, "after");
     }
     const status = await transition(db, id, "disputed", "reporter", { data: { note, photo_url: photoUrl } });
