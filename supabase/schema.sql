@@ -1,5 +1,5 @@
 -- CleanLoop schema — Supabase project easrgnsidtazgphcybsi (ap-south-1)
--- Applied via the Management API query endpoint by scripts/apply-schema.sh
+-- Applied with `npm run sql -- supabase/schema.sql` (scripts/apply-sql.ts).
 -- ponytail: no PostGIS. Recurring detection is a lat/lng bounding-box query (spec §7 fallback).
 
 create table if not exists reports (

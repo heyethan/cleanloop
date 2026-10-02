@@ -12,6 +12,7 @@
  */
 
 import assert from "node:assert/strict";
+import { splitSql } from "./sql-split.ts";
 import { haversineMetres, nearestWard, wardName, WARDS } from "../src/lib/wards.ts";
 import {
   statusFromVerification,
@@ -155,6 +156,18 @@ await checkAsync("stub verify never fabricates a green pin", async () => {
     { waste_type: "mixed", severity: 3 },
   );
   assert.equal(statusFromVerification(v), "claimed");
+});
+
+console.log("sql splitter:");
+check("splitSql: splits on top-level semicolons, drops empties and comments-only", () => {
+  assert.deepEqual(splitSql("create table a (x int);\n-- note; not a split\nalter table a add y int;\n"), [
+    "create table a (x int)",
+    "-- note; not a split\nalter table a add y int",
+  ]);
+});
+check("splitSql: keeps $$ bodies and quoted semicolons intact", () => {
+  const sql = "do $$ begin perform 1; perform 2; end $$;\ninsert into t values ('a;b');";
+  assert.deepEqual(splitSql(sql), ["do $$ begin perform 1; perform 2; end $$", "insert into t values ('a;b')"]);
 });
 
 console.log(`\n${passed} checks passed`);

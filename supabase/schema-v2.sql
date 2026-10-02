@@ -1,6 +1,6 @@
 -- CleanLoop schema v2 — real-data layer.
 --
--- Importers/callers: applied by scripts/apply-schema-v2.ts via the Supabase
+-- Importers/callers: applied with `npm run sql -- supabase/schema-v2.sql` (scripts/apply-sql.ts); originally via the Supabase
 -- Management API query endpoint; read by src/app/api/facilities/route.ts and
 -- written by scripts/seed.ts.
 -- Affected API: adds the waste_facilities table and photo-provenance columns on
