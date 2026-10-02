@@ -16,12 +16,11 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import * as tf from "@tensorflow/tfjs";
 import sharp from "sharp";
-import type { WasteType } from "../types";
 import type { AiProvider, ImageInput } from "../ai";
 import { complaintText } from "../complaint.ts";
+import { wasteIntake, cleanScore } from "../wasteVerdict.ts";
 
 const MODEL_DIR = path.join(process.cwd(), "model");
-const NOT_GARBAGE = "not_garbage";
 /**
  * Screenshots, documents, rooms, food: not a photo of a place at all. Without this class the
  * model had to file them under not_garbage, so a phone screenshot read as "the spot is clean".
@@ -138,48 +137,19 @@ export async function sceneFeatures(image: ImageInput): Promise<Float32Array> {
   return f;
 }
 
-function topWaste(p: Record<string, number>): [WasteType, number] {
-  const [label, score] = Object.entries(p)
-    .filter(([l]) => l !== NOT_GARBAGE && l !== IRRELEVANT)
-    .sort((a, b) => b[1] - a[1])[0];
-  return [label as WasteType, score];
-}
-
 export const tmProvider: AiProvider = {
   name: "tm",
   isLive: true,
 
   async classify(image) {
-    const p = await predict(image);
-    if ((p[IRRELEVANT] ?? 0) >= 0.5) {
-      return {
-        is_waste: false,
-        waste_type: "other",
-        severity: 1,
-        confidence: p[IRRELEVANT],
-        one_line_description:
-          "This isn't a photo of a street or a dump spot. Take a photo of the waste where it is.",
-      };
-    }
-    const clean = p[NOT_GARBAGE] ?? 0;
-    const [wasteType, score] = topWaste(p);
-    if (clean >= 0.5) {
-      return {
-        is_waste: false,
-        waste_type: "other",
-        severity: 1,
-        confidence: clean,
-        one_line_description:
-          "This photo doesn't look like a waste dump. Take it so the waste fills most of the frame.",
-      };
-    }
+    const r = wasteIntake(await predict(image));
     return {
-      is_waste: true,
-      waste_type: wasteType,
+      is_waste: r.ok,
+      waste_type: r.waste_type,
       // The model cannot judge severity; the report route replaces this with the reporter's pick.
-      severity: 3,
-      confidence: score,
-      one_line_description: `Looks like ${wasteType} waste.`,
+      severity: r.ok ? 3 : 1,
+      confidence: r.confidence,
+      one_line_description: r.reason,
     };
   },
 
@@ -204,7 +174,8 @@ export const tmProvider: AiProvider = {
         reasoning: "This isn't a photo of the spot. Take the after photo where the waste was.",
       };
     }
-    const clean = p[NOT_GARBAGE] ?? 0;
+    // A clean street can split its score between not_garbage and good_road (10-class model).
+    const clean = cleanScore(p);
     if (clean >= CLEAN_THRESHOLD) {
       // "No waste in the photo" isn't enough: a photo of any clean field passes that.
       const match = await sceneMatch(before, after);

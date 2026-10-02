@@ -38,9 +38,11 @@ prefer a false yellow.
 
 ### The image model
 
-A seven-class image classifier trained on [Teachable Machine](https://teachablemachine.withgoogle.com/):
+A ten-class image classifier trained on [Teachable Machine](https://teachablemachine.withgoogle.com/):
 `mixed`, `plastic`, `organic`, `construction`, `hazardous`, `not_garbage` (a clean outdoor
-place) and `irrelevant` (screenshots, documents, rooms, food — not a photo of a place at all). It runs **on the
+place), `irrelevant` (screenshots, documents, rooms, food — not a photo of a place at all), and three
+road classes: `pothole`, `damaged_road`, `good_road`. Roads use the same report → verify flow; a repair
+is verified when the after photo is a good road at the same scene and GPS spot. It runs **on the
 server** with `@tensorflow/tfjs` and `sharp` — never in the browser, because a client that
 decides "clean" lets anyone POST a verified cleanup. No API key, no network call, no cost.
 
@@ -57,7 +59,9 @@ decides "clean" lets anyone POST a verified cleanup. No API key, no network call
 The provider is chosen by `CLEANLOOP_AI_PROVIDER` (`tm`, or `stub` for offline development);
 `src/lib/ai.ts` holds the `AiProvider` interface, so a swap touches one file.
 
-**Measured on 131 held-out photos** the model never trained on: 119/131 correct on waste vs.
+**10-class model (2026-10-02), on held-out photos it never trained on:** garbage intake 166/186, road
+intake 82/91, waste photos scored clean 2/95, real before/after pairs still matching 4/4.
+**Earlier 7-class measurement — 131 held-out photos** the model never trained on: 119/131 correct on waste vs.
 not-waste, 86/131 on the exact class, and 19/22 screenshots, documents and indoor shots caught
 as `irrelevant`. 3 photos scored clean enough to pass the image check, which is why the GPS
 check exists. Training images: 663 hand-reviewed photos and phone-size screenshots, listed
