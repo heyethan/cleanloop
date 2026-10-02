@@ -140,6 +140,19 @@ export default function ResolveSheet({
           </div>
         </div>
 
+        {report.source_attribution && (
+          <p className="text-[11px] text-white/50">
+            Source:{" "}
+            {report.source_url ? (
+              <a href={report.source_url} className="underline" target="_blank" rel="noreferrer">
+                {report.source_attribution}
+              </a>
+            ) : (
+              report.source_attribution
+            )}
+          </p>
+        )}
+
         {report.ai_description && (
           <p className="text-[11px] leading-relaxed text-white/60">
             {report.ai_description}

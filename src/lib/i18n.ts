@@ -137,6 +137,9 @@ export const STRINGS: Record<Lang, Dict> = {
      * existing product platform to showcase revenue or business model, then do it."
      */
     sponsor_pack: "Open the sponsor evidence pack",
+    nav_performance: "Who's responsible",
+    nav_ops: "Pickup queue",
+    nav_lite: "Lite mode",
     impact_eyebrow: "Sponsor evidence pack",
     back_to_map: "Back to the map",
     after: "After",
@@ -284,6 +287,9 @@ export const STRINGS: Record<Lang, Dict> = {
       "ನಾವು ದೃಢೀಕರಿಸಿದ ಪ್ರತಿ ಸ್ಥಳವನ್ನು ಮತ್ತೆ ಪರಿಶೀಲಿಸುತ್ತೇವೆ. ಮತ್ತೆ ಕಸ ತುಂಬಿದರೆ ಅದು ಬಗೆಹರಿದದ್ದು ಎಂದು ಪರಿಗಣಿಸಲ್ಪಡುವುದಿಲ್ಲ.",
     // sponsor evidence pack — draft, unreviewed (see the file header)
     sponsor_pack: "ಪ್ರಾಯೋಜಕರ ಸಾಕ್ಷ್ಯ ಕಡತ ತೆರೆಯಿರಿ",
+    nav_performance: "ಯಾರು ಜವಾಬ್ದಾರರು",
+    nav_ops: "ಸಂಗ್ರಹಣೆ ಪಟ್ಟಿ",
+    nav_lite: "ಸರಳ ಮೋಡ್",
     impact_eyebrow: "ಪ್ರಾಯೋಜಕರ ಸಾಕ್ಷ್ಯ ಕಡತ",
     back_to_map: "ನಕ್ಷೆಗೆ ಹಿಂತಿರುಗಿ",
     after: "ನಂತರ",

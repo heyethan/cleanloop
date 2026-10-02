@@ -450,6 +450,22 @@ export default function Home() {
                     <span aria-hidden="true">→</span>
                   </a>
                 )}
+                {/* Accountability surfaces: who is responsible, the crews' queue, and a light page. */}
+                <nav aria-label="More" className="col-span-2 flex gap-2 text-[12px]">
+                  {[
+                    ["/performance", t("nav_performance")],
+                    ["/ops", t("nav_ops")],
+                    ["/lite", t("nav_lite")],
+                  ].map(([href, label]) => (
+                    <a
+                      key={href}
+                      href={href}
+                      className="flex min-h-11 flex-1 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-2 text-center text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
+                    >
+                      {label}
+                    </a>
+                  ))}
+                </nav>
               </div>
             )}
 
