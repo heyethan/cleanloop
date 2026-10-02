@@ -68,6 +68,8 @@ export default function ReportSheet({
     return { lat, lng };
   }, [latText, lngText]);
   const [message, setMessage] = useState<string | null>(null);
+  /** Shown once: the reporter's private link to follow and confirm this case anonymously. */
+  const [trackingCode, setTrackingCode] = useState<string | null>(null);
   const [result, setResult] = useState<Report | null>(null);
   const [aiIsLive, setAiIsLive] = useState(true);
   const [wasRecurring, setWasRecurring] = useState(false);
@@ -136,10 +138,20 @@ export default function ReportSheet({
       const json = await readJson<{
         report: Report;
         ai_is_live: boolean;
+        tracking_code?: string;
         recurring: unknown;
       }>(res);
 
       setResult(json.report);
+      if (json.tracking_code) {
+        setTrackingCode(json.tracking_code);
+        try {
+          // Lets the case page recognise the reporter on this device without the link.
+          localStorage.setItem(`cleanloop_code_${json.report.id}`, json.tracking_code);
+        } catch {
+          /* storage blocked: the private link below still works */
+        }
+      }
       setAiIsLive(json.ai_is_live);
       setWasRecurring(Boolean(json.recurring));
       setStage("done");
@@ -202,6 +214,29 @@ export default function ReportSheet({
               No AI model is wired yet, so this classification is a placeholder, not a
               real analysis.
             </Notice>
+          )}
+
+          {trackingCode && (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3.5">
+              <div className="text-[11px] uppercase tracking-[0.2em] text-white/55">Your private link</div>
+              <p className="mt-1 text-xs text-white/70">
+                Follow this case and confirm the cleanup from any device. Keep it — it isn&apos;t shown again.
+              </p>
+              <div className="mt-2 flex gap-2">
+                <a
+                  href={`/r/${result.id}?code=${trackingCode}`}
+                  className="min-w-0 flex-1 truncate rounded-xl bg-black/30 px-3 py-2 font-mono text-[11px] text-white/80"
+                >
+                  {typeof window !== "undefined" ? window.location.origin : ""}/r/{result.id.slice(0, 8)}…?code={trackingCode}
+                </a>
+                <button
+                  onClick={() => navigator.clipboard?.writeText(`${window.location.origin}/r/${result.id}?code=${trackingCode}`)}
+                  className="shrink-0 rounded-xl border border-white/15 px-3 text-xs text-white/80"
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
           )}
 
           <dl className="overflow-hidden rounded-2xl border border-white/10">

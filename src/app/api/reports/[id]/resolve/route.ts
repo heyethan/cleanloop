@@ -19,6 +19,7 @@ import { serverClient, uploadPhoto } from "@/lib/supabase";
 import { getProvider, statusFromVerification } from "@/lib/ai";
 import type { Report } from "@/lib/types";
 import { haversineMetres } from "@/lib/wards";
+import { transition } from "@/lib/events";
 
 /** How close the resolver's GPS fix must be to the reported spot for a green verdict. */
 const RESOLVE_RADIUS_METRES = 50;
@@ -75,6 +76,8 @@ export async function POST(
     const form = await req.formData();
     const photo = form.get("photo");
     const sessionId = (form.get("session_id") as string | null) ?? null;
+    // Ward operators clearing a pickup from /ops are recorded as such on the timeline.
+    const actor = form.get("actor") === "operator" ? "operator" : "system";
 
     if (!(photo instanceof File)) {
       return NextResponse.json({ error: "photo is required" }, { status: 400 });
@@ -190,18 +193,17 @@ export async function POST(
       .single();
     if (insErr) throw new Error(insErr.message);
 
-    const { error: updErr } = await db
-      .from("reports")
-      .update({
-        status: newStatus,
-        // A verified cleanup waits CONFIRM_DAYS for the reporter before it auto-closes.
-        ...(verifiedAt && {
-          verified_at: verifiedAt,
-          confirm_due_at: new Date(Date.now() + CONFIRM_DAYS * 86_400_000).toISOString(),
-        }),
-      })
-      .eq("id", report.id);
-    if (updErr) throw new Error(updErr.message);
+    // Through the lifecycle so the verdict also lands on the public timeline.
+    await transition(db, report.id, newStatus === "awaiting_confirmation" ? "verified" : "claimed", actor, {
+      data: { result: verification.result, confidence: verification.confidence, reasoning: verification.reasoning },
+      patch: verifiedAt
+        ? {
+            verified_at: verifiedAt,
+            // The reporter has CONFIRM_DAYS to confirm or dispute before it auto-closes.
+            confirm_due_at: new Date(Date.now() + CONFIRM_DAYS * 86_400_000).toISOString(),
+          }
+        : {},
+    });
 
     return NextResponse.json({
       resolution,

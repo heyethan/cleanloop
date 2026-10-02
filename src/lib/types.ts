@@ -62,6 +62,34 @@ export interface Report {
   created_at: string; // ISO-8601, from Postgres timestamptz
   reporter_session_id: string | null;
   is_seed: boolean;
+  /* schema v3 (optional so older rows and the seed script keep type-checking) */
+  category?: "waste" | "road";
+  road_issue?: string | null;
+  gba_ward_id?: string | null;
+  corporation?: string | null;
+  zone?: string | null;
+  description?: string | null;
+  sent_at?: string | null;
+  acknowledged_at?: string | null;
+  assigned_to?: string | null;
+  eta_at?: string | null;
+  verified_at?: string | null;
+  confirm_due_at?: string | null;
+  closed_at?: string | null;
+  reopen_count?: number;
+  source?: string;
+  source_attribution?: string | null;
+  source_url?: string | null;
+  is_public?: boolean;
+}
+
+export interface ReportEvent {
+  id: number;
+  report_id: string;
+  kind: string;
+  actor: "system" | "reporter" | "official" | "operator";
+  data: Record<string, unknown>;
+  created_at: string; // ISO-8601
 }
 
 export interface Resolution {

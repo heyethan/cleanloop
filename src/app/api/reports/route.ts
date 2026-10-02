@@ -24,6 +24,12 @@ import {
 } from "@/lib/supabase";
 import { getProvider } from "@/lib/ai";
 import { isInBengaluru, nearestWard } from "@/lib/wards";
+import { wardAt } from "@/lib/gbaWards";
+import { pickOfficial, type Official } from "@/lib/officials";
+import { notifyNewCase } from "@/lib/notify";
+import { transition } from "@/lib/events";
+import { randomBytes } from "node:crypto";
+import { hashCode } from "@/lib/reporter";
 
 /**
  * Photos come off a phone camera; cap to keep uploads and model calls sane.
@@ -145,6 +151,17 @@ export async function POST(req: Request) {
     // Recurring detection is plain geo logic, not ML (spec §4).
     const prior = await findRecurring(db, lat, lng);
     const ward = nearestWard(lat, lng);
+    // The real GBA ward drives accountability; `ward` (old locality) still labels the UI.
+    const gba = wardAt(lat, lng);
+
+    // Optional typed/dictated note (no audio is ever stored) and capture provenance.
+    const description = String(form.get("description") ?? "").trim().slice(0, 500) || null;
+    const accuracy = Number(form.get("location_accuracy_m"));
+    // "[test]" reports are QA rows: stored like any other, never emailed to an official.
+    const isTest = description?.startsWith("[test]") ?? false;
+
+    // Anonymous follow-up: a code only the reporter sees. Only its hash is stored.
+    const trackingCode = randomBytes(8).toString("base64url").slice(0, 10);
 
     const complaintText = await ai.complaint({
       waste_type: classification.waste_type,
@@ -173,11 +190,44 @@ export async function POST(req: Request) {
         ai_confidence: classification.confidence,
         reporter_session_id: sessionId,
         is_seed: false,
+        gba_ward_id: gba?.id ?? null,
+        corporation: gba?.corporation ?? null,
+        zone: gba?.zone_name ?? null,
+        description,
+        location_accuracy_m: Number.isFinite(accuracy) && accuracy > 0 ? accuracy : null,
+        capture_mode: form.get("capture_mode") === "camera" ? "camera" : "gallery",
+        tracking_code_hash: hashCode(trackingCode),
       })
       .select()
       .single();
 
     if (error) throw new Error(error.message);
+
+    await transition(db, data.id, "received", "system");
+
+    // Tell the responsible official. A mail failure must never lose the citizen's report.
+    let official: Official | null = null;
+    if (gba) {
+      const { data: officials } = await db.from("officials").select("*");
+      official = pickOfficial((officials ?? []) as Official[], gba, "waste");
+      if (!isTest) {
+        try {
+          const outcome = await notifyNewCase(
+            db,
+            { id: data.id, category: "waste", kind: classification.waste_type, severity, lat, lng, photo_url: photoUrl },
+            gba,
+            official,
+          );
+          if (outcome !== "duplicate") {
+            await transition(db, data.id, "sent", "system", {
+              data: { to: official?.name ?? official?.role ?? "GBA central address", delivery: outcome },
+            });
+          }
+        } catch (mailErr) {
+          console.error("notify failed", data.id, (mailErr as Error).message);
+        }
+      }
+    }
 
     /*
      * DURABLE VERIFICATION — the thing that separates this from a complaint form.
@@ -192,11 +242,9 @@ export async function POST(req: Request) {
     let refill: { reopened_report_id: string; ward_id: string | null } | null = null;
     const previouslyVerified = await findVerifiedNearby(db, lat, lng);
     if (previouslyVerified) {
-      const { error: reopenErr } = await db
-        .from("reports")
-        .update({ status: "open" })
-        .eq("id", previouslyVerified.id);
-      if (reopenErr) throw new Error(`reopen: ${reopenErr.message}`);
+      await transition(db, previouslyVerified.id, "reopened", "system", {
+        data: { reason: "waste reported again within 50m", by_report: data.id },
+      });
       refill = {
         reopened_report_id: previouslyVerified.id,
         ward_id: previouslyVerified.ward_id,
@@ -205,6 +253,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       report: data,
+      // Shown once to the reporter; we keep only its hash.
+      tracking_code: trackingCode,
+      ward: gba && { id: gba.id, name: gba.name, ward_no: gba.ward_no, zone: gba.zone_name, corporation: gba.corporation },
+      official: official && { name: official.name, role: official.role, photo_url: official.photo_url, source_url: official.source_url },
       refill,
       ai_is_live: ai.isLive,
       recurring: prior

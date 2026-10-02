@@ -212,6 +212,7 @@ export default function Home() {
     loadStats();
   }, [loadStats]);
 
+
   const handleSelect = useCallback((r: Report) => {
     setSelected(r);
     // Collapse the island as a sheet takes over: two glass layers stacked on each other
@@ -219,6 +220,20 @@ export default function Home() {
     setIslandOpen(false);
     mapRef.current?.flyToReport(r);
   }, []);
+
+  /*
+   * /?case=<id> opens that case's cleanup sheet. It is how an official's "mark resolved"
+   * link (via /r/[id]?resolve=1) reaches the after-photo flow. Runs once, when reports arrive.
+   */
+  const openedFromUrl = useRef(false);
+  useEffect(() => {
+    if (openedFromUrl.current || reports.length === 0) return;
+    const id = new URLSearchParams(window.location.search).get("case");
+    if (!id) return;
+    openedFromUrl.current = true;
+    const r = reports.find((x) => x.id === id);
+    if (r) handleSelect(r);
+  }, [reports, handleSelect]);
 
   return (
     <main className="relative h-[100dvh] w-full overflow-hidden bg-[#070a0f] text-white">

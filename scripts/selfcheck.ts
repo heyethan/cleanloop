@@ -17,6 +17,8 @@ import { nextStatus } from "../src/lib/lifecycle.ts";
 import { haversineMetres, nearestWard, wardName, WARDS } from "../src/lib/wards.ts";
 import { wardAt, wardMeta } from "../src/lib/gbaWards.ts";
 import { pickOfficial, type Official } from "../src/lib/officials.ts";
+import { signAction, verifyAction } from "../src/lib/actionToken.ts";
+import { isReporter, hashCode } from "../src/lib/reporter.ts";
 import {
   statusFromVerification,
   stubProvider,
@@ -236,6 +238,36 @@ check("pickOfficial: category must match (or be 'all'); other wards/zones never 
 check("pickOfficial: an unnamed post is skipped in favour of a named one above it", () => {
   const unnamed = o({ level: "zone", zone: "Bommanahalli", name: null });
   assert.equal(pickOfficial([unnamed, corp], ward, "waste")?.name, "S");
+});
+
+console.log("action links:");
+const SECRET = "test-secret";
+check("action token: a fresh token verifies to its report and action", () => {
+  const t = signAction("r1", "ack", SECRET, 1_000);
+  assert.deepEqual(verifyAction(t, SECRET, 2_000), { reportId: "r1", action: "ack" });
+});
+check("action token: tampered, wrong-secret and expired tokens are rejected", () => {
+  const t = signAction("r1", "ack", SECRET, 1_000);
+  const [body, sig] = t.split(".");
+  const forged = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(body, "base64url").toString()), a: "resolve" })).toString("base64url");
+  assert.equal(verifyAction(`${forged}.${sig}`, SECRET, 2_000), null);
+  assert.equal(verifyAction(t, "other-secret", 2_000), null);
+  assert.equal(verifyAction(t, SECRET, 1_000 + 15 * 86_400_000), null);
+  assert.equal(verifyAction("garbage", SECRET, 2_000), null);
+});
+
+console.log("reporter identity:");
+check("isReporter: matching session or matching tracking code proves it", () => {
+  const r = { reporter_session_id: "s1", tracking_code_hash: hashCode("abc123XYZ0") };
+  assert.equal(isReporter(r, "s1", null), true);
+  assert.equal(isReporter(r, null, "abc123XYZ0"), true);
+});
+check("isReporter: wrong/missing session and code are refused, and null never matches null", () => {
+  const r = { reporter_session_id: "s1", tracking_code_hash: hashCode("abc123XYZ0") };
+  assert.equal(isReporter(r, "s2", "wrong"), false);
+  assert.equal(isReporter(r, null, null), false);
+  assert.equal(isReporter({ reporter_session_id: null, tracking_code_hash: null }, null, null), false);
+  assert.equal(isReporter({ reporter_session_id: null, tracking_code_hash: null }, "", ""), false);
 });
 
 console.log(`\n${passed} checks passed`);
