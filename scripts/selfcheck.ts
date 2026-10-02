@@ -21,6 +21,7 @@ import { signAction, verifyAction } from "../src/lib/actionToken.ts";
 import { isReporter, hashCode } from "../src/lib/reporter.ts";
 import { slaState, median } from "../src/lib/sla.ts";
 import { mapNammaKasa } from "./nammakasa-map.ts";
+import { snapToRoad, roadQuality, ROADS } from "../src/lib/roads.ts";
 import {
   statusFromVerification,
   stubProvider,
@@ -326,6 +327,28 @@ check("mapNammaKasa: never copies names, notes, moderation data or fingerprints"
 check("mapNammaKasa: resolved cases map to verified_resolved; out-of-city points are skipped", () => {
   assert.equal(mapNammaKasa({ ...nk, status: "resolved", resolution_status: "approved" })!.status, "verified_resolved");
   assert.equal(mapNammaKasa({ ...nk, latitude: 0, longitude: 0 }), null);
+});
+
+console.log("roads:");
+check("snapToRoad: a point on a road's own vertex snaps to that road at ~0 m", () => {
+  const f = ROADS[100];
+  const [lng, lat] = f.geometry.coordinates[0];
+  const hit = snapToRoad(lat, lng)!;
+  assert.ok(hit && hit.metres < 1, `got ${hit?.metres}`);
+});
+check("snapToRoad: nothing within 30 m (open sea) returns null", () => {
+  assert.equal(snapToRoad(0, 0), null);
+});
+check("roadQuality: no reports = unknown; fresh severe open report = poor; repaired recently = good", () => {
+  const now = Date.parse("2026-10-01T00:00:00Z");
+  const day = (d: number) => new Date(now - d * 86_400_000).toISOString();
+  assert.equal(roadQuality([], now), "unknown");
+  assert.equal(roadQuality([{ severity: 4, status: "open", created_at: day(2) }], now), "poor");
+  assert.equal(roadQuality([{ severity: 4, status: "verified_resolved", created_at: day(20) }], now), "good");
+});
+check("roadQuality: an old minor report has decayed below 'poor'", () => {
+  const now = Date.parse("2026-10-01T00:00:00Z");
+  assert.notEqual(roadQuality([{ severity: 1, status: "open", created_at: new Date(now - 120 * 86_400_000).toISOString() }], now), "poor");
 });
 
 console.log(`\n${passed} checks passed`);
