@@ -15,6 +15,8 @@ import assert from "node:assert/strict";
 import { splitSql } from "./sql-split.ts";
 import { nextStatus } from "../src/lib/lifecycle.ts";
 import { haversineMetres, nearestWard, wardName, WARDS } from "../src/lib/wards.ts";
+import { wardAt, wardMeta } from "../src/lib/gbaWards.ts";
+import { pickOfficial, type Official } from "../src/lib/officials.ts";
 import {
   statusFromVerification,
   stubProvider,
@@ -192,6 +194,48 @@ check("impossible transitions are rejected (null)", () => {
   assert.equal(nextStatus("verified_resolved", "verified"), null);
   assert.equal(nextStatus("verified_resolved", "acknowledged"), null);
   assert.equal(nextStatus("open", "reopened"), null);
+});
+
+console.log("GBA wards:");
+check("wardAt: Vidhana Soudha is in a Central corporation ward", () => {
+  const w = wardAt(12.97966, 77.59072);
+  assert.ok(w, "expected a ward");
+  assert.equal(w.corporation, "Central");
+  assert.ok(w.zone_name && w.name);
+});
+check("wardAt: points outside Bengaluru return null", () => {
+  assert.equal(wardAt(12.5, 77.0), null);
+  assert.equal(wardAt(0, 0), null);
+});
+check("wardMeta round-trips an id and rejects unknown ids", () => {
+  const w = wardAt(12.97966, 77.59072)!;
+  assert.equal(wardMeta(w.id)?.name, w.name);
+  assert.equal(wardMeta("nowhere-999"), null);
+});
+
+console.log("officials:");
+const ward = { id: "south-28", zone_name: "Bommanahalli", corporation: "South" };
+const o = (p: Partial<Official>): Official => ({ level: "city", category: "all", role: "r", name: null, ward_id: null, zone: null, corporation: null, photo_url: null, email: null, source_url: null, verified_at: null, ...p });
+const city = o({ level: "city", role: "Chief Commissioner", name: "C" });
+const corp = o({ level: "corporation", corporation: "South", role: "Commissioner", name: "S" });
+const zone = o({ level: "zone", zone: "Bommanahalli", role: "Zonal Commissioner", name: "Z" });
+const wardRoad = o({ level: "ward", ward_id: "south-28", category: "road", role: "AEE", name: "W" });
+check("pickOfficial: most specific level wins (ward > zone > corporation > city)", () => {
+  assert.equal(pickOfficial([city, corp, zone, wardRoad], ward, "road")?.name, "W");
+  assert.equal(pickOfficial([city, corp, zone], ward, "road")?.name, "Z");
+  assert.equal(pickOfficial([city, corp], ward, "waste")?.name, "S");
+  assert.equal(pickOfficial([city], ward, "waste")?.name, "C");
+});
+check("pickOfficial: category must match (or be 'all'); other wards/zones never match", () => {
+  assert.equal(pickOfficial([wardRoad, city], ward, "waste")?.name, "C");
+  const other = o({ level: "ward", ward_id: "south-29", category: "waste", name: "X" });
+  const otherZone = o({ level: "zone", zone: "Jayanagar", name: "Y" });
+  assert.equal(pickOfficial([other, otherZone, corp], ward, "waste")?.name, "S");
+  assert.equal(pickOfficial([], ward, "waste"), null);
+});
+check("pickOfficial: an unnamed post is skipped in favour of a named one above it", () => {
+  const unnamed = o({ level: "zone", zone: "Bommanahalli", name: null });
+  assert.equal(pickOfficial([unnamed, corp], ward, "waste")?.name, "S");
 });
 
 console.log(`\n${passed} checks passed`);

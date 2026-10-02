@@ -23,6 +23,9 @@ alter table reports add column if not exists road_segment_id text;
 alter table reports add column if not exists corporation text;
 alter table reports add column if not exists zone text;
 alter table reports add column if not exists legacy_ward_id text;
+-- The real GBA ward (e.g. 'south-28'). ward_id keeps the old locality id the current UI labels by.
+alter table reports add column if not exists gba_ward_id text;
+create index if not exists reports_gba_ward_idx on reports (gba_ward_id);
 
 -- ---------- reports: lifecycle timestamps (copied from events for SLA queries) ----------
 alter table reports add column if not exists sent_at timestamptz;
