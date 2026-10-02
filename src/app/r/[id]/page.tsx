@@ -41,6 +41,11 @@ function eventText(e: ReportEvent): string {
   }
 }
 
+/** Whole days left until `iso` (0 once passed), or null. Server-side, per request. */
+function daysUntil(iso: string | null | undefined): number | null {
+  return iso ? Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000)) : null;
+}
+
 const fmt = (iso: string) =>
   new Date(iso).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" });
 
@@ -59,7 +64,7 @@ export default async function CasePage({
   const [{ data: report }, { data: events }, { data: officials }] = await Promise.all([
     db.from("reports").select(PUBLIC_REPORT_COLUMNS).eq("id", id).single(),
     db.from("report_events").select("*").eq("report_id", id).order("created_at"),
-    db.from("officials").select("*"),
+    db.from("officials").select("*").order("id"),
   ]);
   if (!report) notFound();
   const r = report as unknown as Report;
@@ -106,7 +111,11 @@ export default async function CasePage({
 
       {r.status === "awaiting_confirmation" && (
         <div className="mt-5">
-          <ConfirmBox id={r.id} codeFromUrl={q.code ?? null} dueAt={r.confirm_due_at ?? null} />
+          <ConfirmBox
+            id={r.id}
+            codeFromUrl={q.code ?? null}
+            daysLeft={daysUntil(r.confirm_due_at)}
+          />
         </div>
       )}
 

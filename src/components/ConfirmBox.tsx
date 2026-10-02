@@ -8,27 +8,27 @@
  * code (from ?code= or saved by ReportSheet under localStorage "cleanloop_code_<id>").
  * The server decides who the reporter is; this box just asks.
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSessionId } from "@/lib/session";
 
-export default function ConfirmBox({ id, codeFromUrl, dueAt }: { id: string; codeFromUrl: string | null; dueAt: string | null }) {
+export default function ConfirmBox({ id, codeFromUrl, daysLeft }: { id: string; codeFromUrl: string | null; daysLeft: number | null }) {
   const router = useRouter();
-  const [code, setCode] = useState(codeFromUrl);
   const [disputing, setDisputing] = useState(false);
   const [note, setNote] = useState("");
   const [photo, setPhoto] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (codeFromUrl) return;
+  /** The private link's code, or the copy this device saved when it reported the case. */
+  function savedCode(): string | null {
+    if (codeFromUrl) return codeFromUrl;
     try {
-      setCode(localStorage.getItem(`cleanloop_code_${id}`));
+      return localStorage.getItem(`cleanloop_code_${id}`);
     } catch {
-      /* storage blocked: the URL code still works */
+      return null; // storage blocked: only the private link works
     }
-  }, [id, codeFromUrl]);
+  }
 
   async function send(action: "confirm" | "dispute") {
     setBusy(true);
@@ -36,6 +36,7 @@ export default function ConfirmBox({ id, codeFromUrl, dueAt }: { id: string; cod
     const fd = new FormData();
     fd.set("action", action);
     fd.set("session_id", getSessionId());
+    const code = savedCode();
     if (code) fd.set("code", code);
     if (action === "dispute") {
       fd.set("note", note);
@@ -48,8 +49,7 @@ export default function ConfirmBox({ id, codeFromUrl, dueAt }: { id: string; cod
     router.refresh();
   }
 
-  const days = dueAt ? Math.max(0, Math.ceil((new Date(dueAt).getTime() - Date.now()) / 86_400_000)) : null;
-
+  const days = daysLeft;
   return (
     <section className="rounded-2xl border border-[#8fe3bf]/30 bg-[#8fe3bf]/10 p-4">
       <h2 className="text-sm font-semibold text-[#c8f5e1]">Did you report this? Is it really clean?</h2>
@@ -90,8 +90,8 @@ export default function ConfirmBox({ id, codeFromUrl, dueAt }: { id: string; cod
         </div>
       )}
       {msg && <p className="mt-2 text-xs text-[#ffb0a5]">{msg}</p>}
-      {!code && (
-        <p className="mt-2 text-[11px] text-white/45">On another device? Open the private link you got when you reported.</p>
+      {!codeFromUrl && (
+        <p className="mt-2 text-[11px] text-white/45">Reported from another device? Open the private link you got when you reported.</p>
       )}
     </section>
   );

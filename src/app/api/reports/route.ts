@@ -210,7 +210,7 @@ export async function POST(req: Request) {
     // Tell the responsible official. A mail failure must never lose the citizen's report.
     let official: Official | null = null;
     if (gba) {
-      const { data: officials } = await db.from("officials").select("*");
+      const { data: officials } = await db.from("officials").select("*").order("id");
       official = pickOfficial((officials ?? []) as Official[], gba, "waste");
       if (!isTest) {
         try {
