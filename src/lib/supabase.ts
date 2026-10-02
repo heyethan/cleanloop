@@ -23,6 +23,18 @@ const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 export const PHOTO_BUCKET = "cleanloop";
 
+/**
+ * Everything the map needs, and nothing that identifies or authenticates a reporter:
+ * reporter_session_id and tracking_code_hash never leave the server (also revoked from the
+ * anon role in schema-v3.sql).
+ */
+export const PUBLIC_REPORT_COLUMNS =
+  "id, photo_before_url, lat, lng, ward_id, waste_type, severity, is_recurring, recurring_of_report_id, " +
+  "status, complaint_text, ai_description, ai_confidence, created_at, is_seed, photo_attribution, " +
+  "photo_license, photo_source_url, category, road_issue, gba_ward_id, corporation, zone, description, " +
+  "sent_at, acknowledged_at, assigned_to, eta_at, verified_at, confirm_due_at, closed_at, reopen_count, " +
+  "source, source_attribution, source_url, is_public";
+
 /** Server-side, service role. Never import this into a client component. */
 export function serverClient(): SupabaseClient {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;

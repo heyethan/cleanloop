@@ -9,7 +9,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
-import { serverClient } from "@/lib/supabase";
+import { serverClient, PUBLIC_REPORT_COLUMNS } from "@/lib/supabase";
 import { wardMeta } from "@/lib/gbaWards";
 import { pickOfficial, type Official } from "@/lib/officials";
 import ConfirmBox from "@/components/ConfirmBox";
@@ -57,12 +57,12 @@ export default async function CasePage({
   if (!/^[0-9a-f-]{36}$/.test(id)) notFound();
   const db = serverClient();
   const [{ data: report }, { data: events }, { data: officials }] = await Promise.all([
-    db.from("reports").select("*").eq("id", id).single(),
+    db.from("reports").select(PUBLIC_REPORT_COLUMNS).eq("id", id).single(),
     db.from("report_events").select("*").eq("report_id", id).order("created_at"),
     db.from("officials").select("*"),
   ]);
   if (!report) notFound();
-  const r = report as Report;
+  const r = report as unknown as Report;
   const ward = r.gba_ward_id ? wardMeta(r.gba_ward_id) : null;
   const official = ward ? pickOfficial((officials ?? []) as Official[], ward, r.category ?? "waste") : null;
   const s = STATUS[r.status] ?? STATUS.open;

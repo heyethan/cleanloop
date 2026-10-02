@@ -21,6 +21,7 @@ import {
   uploadPhoto,
   RECURRING_RADIUS_METRES,
   RECURRING_WINDOW_DAYS,
+  PUBLIC_REPORT_COLUMNS,
 } from "@/lib/supabase";
 import { getProvider } from "@/lib/ai";
 import { isInBengaluru, nearestWard } from "@/lib/wards";
@@ -43,12 +44,13 @@ import { hashCode } from "@/lib/reporter";
 const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
 const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp"];
 
+
 export async function GET() {
   try {
     const db = serverClient();
     const { data, error } = await db
       .from("reports")
-      .select("*")
+      .select(PUBLIC_REPORT_COLUMNS)
       .order("created_at", { ascending: false })
       .limit(500);
     if (error) throw new Error(error.message);

@@ -1,6 +1,7 @@
 /**
- * Is this request from the person who reported the case? Reporters are anonymous, so proof is
- * either the same browser session or the private tracking code shown once after reporting.
+ * Is this request from the person who reported the case? Reporters are anonymous, so the only
+ * proof is the private tracking code shown once after reporting (this device also keeps it in
+ * localStorage, so the reporter never has to paste it).
  *
  * Affected API: exports hashCode(), isReporter(). Used by POST /api/reports/[id]/confirm and the
  * /r/[id] page; checked in scripts/selfcheck.ts. Only sha256(code) is ever stored.
@@ -14,7 +15,9 @@ export function isReporter(
   sessionId: string | null,
   code: string | null,
 ): boolean {
-  if (sessionId && report.reporter_session_id && sessionId === report.reporter_session_id) return true;
+  // The session id is NOT accepted as proof: it was stored on a publicly readable row, so
+  // anyone could have read it. Only the private code (never stored, only its hash) counts.
+  void sessionId;
   if (!code || !report.tracking_code_hash) return false;
   const a = Buffer.from(hashCode(code)), b = Buffer.from(report.tracking_code_hash);
   return a.length === b.length && timingSafeEqual(a, b);

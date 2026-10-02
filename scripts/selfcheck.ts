@@ -257,10 +257,13 @@ check("action token: tampered, wrong-secret and expired tokens are rejected", ()
 });
 
 console.log("reporter identity:");
-check("isReporter: matching session or matching tracking code proves it", () => {
+check("isReporter: only the private tracking code proves it", () => {
   const r = { reporter_session_id: "s1", tracking_code_hash: hashCode("abc123XYZ0") };
-  assert.equal(isReporter(r, "s1", null), true);
   assert.equal(isReporter(r, null, "abc123XYZ0"), true);
+});
+check("isReporter: a session id is NOT proof (it was publicly readable)", () => {
+  const r = { reporter_session_id: "s1", tracking_code_hash: hashCode("abc123XYZ0") };
+  assert.equal(isReporter(r, "s1", null), false);
 });
 check("isReporter: wrong/missing session and code are refused, and null never matches null", () => {
   const r = { reporter_session_id: "s1", tracking_code_hash: hashCode("abc123XYZ0") };

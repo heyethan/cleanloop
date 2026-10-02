@@ -141,3 +141,15 @@ update reports r set
   closed_at = coalesce(r.closed_at, (select min(s.verified_at) from resolutions s
                  where s.report_id = r.id and s.ai_verification_result = 'verified_clean'), r.created_at)
 where r.status = 'verified_resolved' and r.closed_at is null;
+
+-- ---------- column privacy: the anon key must never read who reported or their code hash ----------
+-- reporter_session_id and tracking_code_hash identify/authenticate an anonymous reporter. Table-wide
+-- SELECT is replaced with a column list that leaves them out (RLS still decides which rows).
+revoke select on reports from anon, authenticated;
+grant select (id, photo_before_url, lat, lng, ward_id, waste_type, severity, is_recurring,
+  recurring_of_report_id, status, complaint_text, ai_description, ai_confidence, created_at, is_seed,
+  photo_attribution, photo_license, photo_source_url, category, road_issue, road_segment_id,
+  gba_ward_id, corporation, zone, legacy_ward_id, description, sent_at, acknowledged_at, assigned_to,
+  eta_at, verified_at, confirm_due_at, closed_at, reopen_count, location_accuracy_m, photo_taken_at,
+  capture_mode, source, source_id, source_attribution, source_url, is_public)
+  on reports to anon, authenticated;
