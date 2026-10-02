@@ -220,7 +220,8 @@ export async function POST(req: Request) {
             gba,
             official,
           );
-          if (outcome !== "duplicate") {
+          // Only claim "sent" on the timeline when an email really went out.
+          if (outcome === "sent") {
             await transition(db, data.id, "sent", "system", {
               data: { to: official?.name ?? official?.role ?? "GBA central address", delivery: outcome },
             });

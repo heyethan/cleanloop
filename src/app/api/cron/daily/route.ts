@@ -85,7 +85,7 @@ export async function GET(req: Request) {
       html: `<p>These citizen reports in ${corp} corporation are past their resolution deadline on CleanLoop, oldest first.</p><ul>${lines.map((l) => `<li>${l.slice(2)}</li>`).join("")}</ul><p><a href="${siteUrl()}/performance">Public performance by corporation, zone and ward</a></p>`,
       dedupeKey: `digest:${corp}:${today}`,
     });
-    if (outcome === "duplicate") continue;
+    if (outcome !== "sent") continue; // paused (printed) or already sent today: no escalation events
     mailed++;
     budget--;
     for (const r of cases.filter((c) => !already.has(c.id))) {

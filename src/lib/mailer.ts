@@ -4,9 +4,9 @@
  * Affected API: exports sendOnce(). Used by src/lib/notify.ts (new-case and digest emails).
  * Provider: AgentMail REST (POST /v0/inboxes/{MAIL_FROM}/messages/send), key AGENTMAIL_API_KEY.
  * email_log (schema-v3) is written FIRST: its unique dedupe_key makes a retry a no-op, and it is
- * the audit trail of everything CleanLoop sent. Real mail goes out only on the production
- * deployment (VERCEL_ENV=production); anywhere else it is printed, so local runs and tests can
- * never email a real official.
+ * the audit trail of everything CleanLoop sent. Real mail goes out only when MAIL_ENABLED=true AND
+ * on the production deployment (VERCEL_ENV=production); otherwise it is printed, so local runs,
+ * tests and the paused state can never email a real official.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -29,7 +29,8 @@ export async function sendOnce(db: SupabaseClient, mail: Mail): Promise<"sent" |
 
   const from = process.env.MAIL_FROM;
   const key = process.env.AGENTMAIL_API_KEY;
-  if (process.env.VERCEL_ENV !== "production" || !from || !key) {
+  // Kill switch: nothing is sent unless MAIL_ENABLED=true (Ethan turns this on when ready).
+  if (process.env.MAIL_ENABLED !== "true" || process.env.VERCEL_ENV !== "production" || !from || !key) {
     console.log(`[mail:printed] to=${mail.to} subject=${mail.subject}\n${mail.text}`);
     return "printed";
   }
