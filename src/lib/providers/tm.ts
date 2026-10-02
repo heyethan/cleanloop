@@ -31,13 +31,8 @@ const IRRELEVANT = "irrelevant";
 /** The after photo must be this sure it shows no waste before a cleanup turns green. */
 export const CLEAN_THRESHOLD = 0.75;
 
-/**
- * Minimum scene similarity between before and after photos. Calibrated 2026-10-01 on 17 real
- * same-spot cleanup pairs (16 pass) vs 77 dump-vs-elsewhere pairs (~2% pass); a street dump
- * against a green field scored 0.07.
- * ponytail: 17 pairs, none from India; recalibrate once real Bengaluru cleanups come in.
- */
-export const SCENE_MATCH_THRESHOLD = 0.3;
+import { SCENE_MATCH_THRESHOLD } from "../sceneThreshold.ts";
+export { SCENE_MATCH_THRESHOLD };
 
 interface Loaded {
   model: tf.LayersModel;

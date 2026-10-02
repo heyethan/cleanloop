@@ -602,6 +602,21 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
         },
       });
 
+      // --- live road quality (open data from /api/roads) --------------------
+      // Only reported segments come back; poor = red, good = green, unknown = grey.
+      m.addSource("roads", { type: "geojson", data: "/api/roads" });
+      m.addLayer({
+        id: "roads-quality",
+        type: "line",
+        source: "roads",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": ["match", ["get", "quality"], "poor", "#ff5a4f", "good", "#22c98a", "#8a94a6"],
+          "line-width": ["interpolate", ["linear"], ["zoom"], 11, 2, 16, 6],
+          "line-opacity": 0.85,
+        },
+      });
+
       // --- report pillars ---------------------------------------------------
       m.addSource("reports", {
         type: "geojson",

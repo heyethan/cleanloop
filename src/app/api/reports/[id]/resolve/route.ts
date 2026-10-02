@@ -20,6 +20,8 @@ import { getProvider, statusFromVerification } from "@/lib/ai";
 import type { Report } from "@/lib/types";
 import { haversineMetres } from "@/lib/wards";
 import { transition } from "@/lib/events";
+import { predict, sceneMatch } from "@/lib/providers/tm";
+import { roadVerdict } from "@/lib/roadVerdict";
 
 /** How close the resolver's GPS fix must be to the reported spot for a green verdict. */
 const RESOLVE_RADIUS_METRES = 50;
@@ -132,11 +134,13 @@ export async function POST(
     const beforeBytes = new Uint8Array(await beforeRes.arrayBuffer());
     const beforeMime = beforeRes.headers.get("content-type") ?? "image/jpeg";
 
-    let verification = await ai.verify(
-      { data: Buffer.from(beforeBytes).toString("base64"), mimeType: beforeMime },
-      { data: Buffer.from(afterBytes).toString("base64"), mimeType: photo.type },
-      { waste_type: report.waste_type, severity: report.severity },
-    );
+    const beforeImg = { data: Buffer.from(beforeBytes).toString("base64"), mimeType: beforeMime };
+    const afterImg = { data: Buffer.from(afterBytes).toString("base64"), mimeType: photo.type };
+    // Road repairs: the after photo must show a good road at the same scene (src/lib/roadVerdict.ts).
+    let verification =
+      report.category === "road"
+        ? roadVerdict(await predict(afterImg), await sceneMatch(beforeImg, afterImg))
+        : await ai.verify(beforeImg, afterImg, { waste_type: report.waste_type, severity: report.severity });
 
     /*
      * The image model judges one photo; it cannot tell a clean street here from a clean

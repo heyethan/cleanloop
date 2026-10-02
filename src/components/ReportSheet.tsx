@@ -78,6 +78,9 @@ export default function ReportSheet({
   const [severity, setSeverity] = useState<number | null>(null);
   /** Optional note, typed or dictated. Text only: no audio is ever kept. */
   const [description, setDescription] = useState("");
+  /** Garbage dump (default) or road damage; roads also need which kind of damage. */
+  const [category, setCategory] = useState<"waste" | "road">("waste");
+  const [roadIssue, setRoadIssue] = useState<string>("");
   const [step, setStep] = useState(0);
 
   // Advance the visible work steps while the request is genuinely in flight.
@@ -136,6 +139,8 @@ export default function ReportSheet({
       fd.set("lng", String(coords.lng));
       fd.set("severity", String(severity));
       if (description.trim()) fd.set("description", description.trim());
+      fd.set("category", category);
+      if (category === "road") fd.set("road_issue", roadIssue);
       fd.set("capture_mode", hasCamera ? "camera" : "gallery");
       fd.set("session_id", getSessionId());
 
@@ -174,7 +179,8 @@ export default function ReportSheet({
    * not just presence.
    */
   const coordsValid = Boolean(coords && isInBengaluru(coords.lat, coords.lng));
-  const canSubmit = Boolean(file) && coordsValid && Boolean(severity) && stage !== "uploading";
+  const canSubmit =
+    Boolean(file) && coordsValid && Boolean(severity) && (category === "waste" || Boolean(roadIssue)) && stage !== "uploading";
 
   /*
    * A disabled button with no stated reason makes the user hunt for what they missed.
@@ -245,7 +251,11 @@ export default function ReportSheet({
           )}
 
           <dl className="overflow-hidden rounded-2xl border border-white/10">
-            <Row label={t("waste_type")} value={result.waste_type} capitalize />
+            <Row
+              label={result.category === "road" ? (lang === "kn" ? "ರಸ್ತೆ ಸಮಸ್ಯೆ" : "Road issue") : t("waste_type")}
+              value={(result.category === "road" ? result.road_issue : result.waste_type)?.replace("_", " ") ?? ""}
+              capitalize
+            />
             <Row label={t("severity_label")} value={`${result.severity} / 5`} />
             <Row
               label={t("history")}
@@ -284,6 +294,38 @@ export default function ReportSheet({
         </div>
       ) : (
         <div className="space-y-5">
+          {/* --- what is it: garbage or road damage --- */}
+          <div className="flex gap-1 rounded-full border border-white/10 bg-white/[0.04] p-1" role="radiogroup" aria-label="Report type">
+            {(["waste", "road"] as const).map((c) => (
+              <button
+                key={c}
+                type="button"
+                role="radio"
+                aria-checked={category === c}
+                onClick={() => setCategory(c)}
+                className={`min-h-11 flex-1 rounded-full text-sm ${category === c ? "bg-white font-semibold text-black" : "text-white/70"}`}
+              >
+                {c === "waste" ? (lang === "kn" ? "ಕಸ" : "Garbage") : lang === "kn" ? "ರಸ್ತೆ ಹಾನಿ" : "Road damage"}
+              </button>
+            ))}
+          </div>
+          {category === "road" && (
+            <label className="block text-[11px] uppercase tracking-[0.2em] text-white/55">
+              {lang === "kn" ? "ಸಮಸ್ಯೆ" : "What's wrong"}
+              <select
+                value={roadIssue}
+                onChange={(e) => setRoadIssue(e.target.value)}
+                className="mt-2 block min-h-11 w-full rounded-xl border border-white/10 bg-[#0d1117] px-3 text-sm normal-case tracking-normal text-white"
+              >
+                <option value="" disabled>{lang === "kn" ? "ಆರಿಸಿ" : "Choose"}</option>
+                <option value="pothole">{lang === "kn" ? "ಗುಂಡಿ" : "Pothole"}</option>
+                <option value="damaged_surface">{lang === "kn" ? "ಹಾಳಾದ ರಸ್ತೆ ಮೇಲ್ಮೈ" : "Broken / crumbling surface"}</option>
+                <option value="waterlogging">{lang === "kn" ? "ನೀರು ನಿಲ್ಲುವಿಕೆ" : "Waterlogging"}</option>
+                <option value="debris">{lang === "kn" ? "ರಸ್ತೆಯ ಮೇಲೆ ಅವಶೇಷ" : "Debris on the road"}</option>
+              </select>
+            </label>
+          )}
+
           {/* --- step 1: photo --- */}
           <div>
             <StepLabel n={1} label={t("photo")} done={Boolean(file)} />

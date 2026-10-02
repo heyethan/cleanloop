@@ -29,6 +29,11 @@ import { wardAt } from "@/lib/gbaWards";
 import { pickOfficial, type Official } from "@/lib/officials";
 import { notifyNewCase } from "@/lib/notify";
 import { transition } from "@/lib/events";
+import { predict } from "@/lib/providers/tm";
+import { roadIntake } from "@/lib/roadVerdict";
+import { snapToRoad } from "@/lib/roads";
+
+const ROAD_ISSUES = ["pothole", "damaged_surface", "waterlogging", "debris"];
 import { randomBytes } from "node:crypto";
 import { hashCode } from "@/lib/reporter";
 
@@ -140,10 +145,20 @@ async function createReport(req: Request) {
      * Classify BEFORE uploading. The upload used to happen first, so a rejected photo would
      * still have left a file in the bucket; now nothing is stored unless the report is real.
      */
-    const classification = await ai.classify({
-      data: Buffer.from(bytes).toString("base64"),
-      mimeType: photo.type,
-    });
+    // Waste (default) or road. Roads use the same model's road classes; the reporter picks the issue.
+    const category = form.get("category") === "road" ? "road" : "waste";
+    const roadIssue = String(form.get("road_issue") ?? "");
+    if (category === "road" && !ROAD_ISSUES.includes(roadIssue)) {
+      return NextResponse.json({ error: `road_issue must be one of ${ROAD_ISSUES.join(", ")}` }, { status: 400 });
+    }
+    const image = { data: Buffer.from(bytes).toString("base64"), mimeType: photo.type };
+    const classification =
+      category === "road"
+        ? await (async () => {
+            const intake = roadIntake(await predict(image));
+            return { is_waste: intake.ok, waste_type: null, confidence: intake.ok ? 1 : 0, one_line_description: intake.reason };
+          })()
+        : await ai.classify(image);
 
     /*
      * The front door. Without this the app accepted anything: a photo of a flowchart on a
@@ -161,7 +176,7 @@ async function createReport(req: Request) {
     if (!classification.is_waste) {
       return NextResponse.json(
         {
-          error: "That photo doesn't look like waste.",
+          error: category === "road" ? "That photo doesn't show road damage." : "That photo doesn't look like waste.",
           detail: classification.one_line_description,
         },
         { status: 422 },
@@ -185,8 +200,15 @@ async function createReport(req: Request) {
     // Anonymous follow-up: a code only the reporter sees. Only its hash is stored.
     const trackingCode = randomBytes(8).toString("base64url").slice(0, 10);
 
-    const complaintText = await ai.complaint({
-      waste_type: classification.waste_type,
+    // Road reports also record which road they are on, for the live road-quality layer.
+    const road = category === "road" ? snapToRoad(lat, lng) : null;
+
+    const complaintText = category === "road"
+      ? `Road damage (${roadIssue.replace("_", " ")}, severity ${severity} of 5) has been reported at ` +
+        `${road?.name ? `${road.name}, ` : ""}${gba ? `${gba.name}, ${gba.zone_name} zone` : `${lat.toFixed(5)}, ${lng.toFixed(5)}`}. ` +
+        `Requesting inspection and repair by the concerned engineering division.`
+      : await ai.complaint({
+      waste_type: classification.waste_type ?? "mixed",
       severity,
       description: classification.one_line_description,
       is_recurring: prior !== null,
@@ -203,6 +225,9 @@ async function createReport(req: Request) {
         lng,
         ward_id: ward?.id ?? null,
         waste_type: classification.waste_type,
+        category,
+        road_issue: category === "road" ? roadIssue : null,
+        road_segment_id: road?.id ?? null,
         severity,
         is_recurring: prior !== null,
         recurring_of_report_id: prior?.id ?? null,
@@ -231,12 +256,12 @@ async function createReport(req: Request) {
     let official: Official | null = null;
     if (gba) {
       const { data: officials } = await db.from("officials").select("*").order("id");
-      official = pickOfficial((officials ?? []) as Official[], gba, "waste");
+      official = pickOfficial((officials ?? []) as Official[], gba, category);
       if (!isTest) {
         try {
           const outcome = await notifyNewCase(
             db,
-            { id: data.id, category: "waste", kind: classification.waste_type, severity, lat, lng, photo_url: photoUrl },
+            { id: data.id, category, kind: category === "road" ? roadIssue.replace("_", " ") : classification.waste_type ?? "mixed", severity, lat, lng, photo_url: photoUrl },
             gba,
             official,
           );
