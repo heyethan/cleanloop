@@ -22,6 +22,8 @@ import { isReporter, hashCode } from "../src/lib/reporter.ts";
 import { slaState, median } from "../src/lib/sla.ts";
 import { mapNammaKasa } from "./nammakasa-map.ts";
 import { snapToRoad, roadQuality, ROADS } from "../src/lib/roads.ts";
+import { roadIntake, roadVerdict } from "../src/lib/roadVerdict.ts";
+import { wasteIntake, cleanScore } from "../src/lib/wasteVerdict.ts";
 import {
   statusFromVerification,
   stubProvider,
@@ -349,6 +351,40 @@ check("roadQuality: no reports = unknown; fresh severe open report = poor; repai
 check("roadQuality: an old minor report has decayed below 'poor'", () => {
   const now = Date.parse("2026-10-01T00:00:00Z");
   assert.notEqual(roadQuality([{ severity: 1, status: "open", created_at: new Date(now - 120 * 86_400_000).toISOString() }], now), "poor");
+});
+
+console.log("road verdicts:");
+check("roadIntake: a pothole or damaged road is accepted; a good road or a screenshot is refused", () => {
+  assert.equal(roadIntake({ pothole: 0.8, damaged_road: 0.1, good_road: 0.1 }).ok, true);
+  assert.equal(roadIntake({ pothole: 0.3, damaged_road: 0.4, good_road: 0.3 }).ok, true);
+  assert.equal(roadIntake({ pothole: 0.1, damaged_road: 0.1, good_road: 0.8 }).ok, false);
+  assert.equal(roadIntake({ irrelevant: 0.9, pothole: 0.05 }).ok, false);
+});
+check("roadVerdict: repaired road at the same place is verified; elsewhere/unclear is held; still broken is not_clean", () => {
+  assert.equal(roadVerdict({ good_road: 0.9 }, 0.5).result, "verified_clean");
+  assert.equal(roadVerdict({ good_road: 0.9 }, 0.1).result, "ambiguous");
+  assert.equal(roadVerdict({ good_road: 0.5, pothole: 0.5 }, 0.5).result, "ambiguous");
+  assert.equal(roadVerdict({ pothole: 0.9, good_road: 0.05 }, 0.5).result, "not_clean");
+  assert.equal(roadVerdict({ irrelevant: 0.9 }, 0.9).result, "not_clean");
+});
+
+console.log("waste intake (10-class model):");
+check("wasteIntake: waste classes summing past half are accepted as the top waste type", () => {
+  const r = wasteIntake({ mixed: 0.35, plastic: 0.25, not_garbage: 0.2, pothole: 0.2 });
+  assert.equal(r.ok, true);
+  assert.equal(r.waste_type, "mixed");
+});
+check("wasteIntake: road damage photo is refused with a pointer to road reports", () => {
+  const r = wasteIntake({ pothole: 0.6, damaged_road: 0.2, mixed: 0.2 });
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /road damage/i);
+});
+check("wasteIntake: screenshot and clean street are refused", () => {
+  assert.equal(wasteIntake({ irrelevant: 0.9 }).ok, false);
+  assert.equal(wasteIntake({ not_garbage: 0.5, good_road: 0.4, mixed: 0.1 }).ok, false);
+});
+check("cleanScore: a clean street split between not_garbage and good_road still counts as clean", () => {
+  assert.ok(cleanScore({ not_garbage: 0.45, good_road: 0.4 }) >= 0.75);
 });
 
 console.log(`\n${passed} checks passed`);
