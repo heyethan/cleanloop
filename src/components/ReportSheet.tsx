@@ -19,6 +19,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import DictateButton from "./DictateButton";
 import { getSessionId } from "@/lib/session";
 import Sheet from "@/components/Sheet";
 import { translate, type Lang } from "@/lib/i18n";
@@ -75,6 +76,8 @@ export default function ReportSheet({
   const [wasRecurring, setWasRecurring] = useState(false);
   // The image model names the waste but cannot judge how bad it is, so the reporter does.
   const [severity, setSeverity] = useState<number | null>(null);
+  /** Optional note, typed or dictated. Text only: no audio is ever kept. */
+  const [description, setDescription] = useState("");
   const [step, setStep] = useState(0);
 
   // Advance the visible work steps while the request is genuinely in flight.
@@ -132,6 +135,8 @@ export default function ReportSheet({
       fd.set("lat", String(coords.lat));
       fd.set("lng", String(coords.lng));
       fd.set("severity", String(severity));
+      if (description.trim()) fd.set("description", description.trim());
+      fd.set("capture_mode", hasCamera ? "camera" : "gallery");
       fd.set("session_id", getSessionId());
 
       const res = await fetch("/api/reports", { method: "POST", body: fd });
@@ -364,6 +369,24 @@ export default function ReportSheet({
                   {nearestWard(coords.lat, coords.lng)?.name ?? t("location_set")}
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* --- optional note: type or speak (Kannada / English) --- */}
+          <div>
+            <label htmlFor="report-note" className="text-[11px] uppercase tracking-[0.2em] text-white/55">
+              {lang === "kn" ? "ಟಿಪ್ಪಣಿ (ಐಚ್ಛಿಕ)" : "Note (optional)"}
+            </label>
+            <div className="mt-2 flex items-start gap-2">
+              <textarea
+                id="report-note"
+                value={description}
+                onChange={(e) => setDescription(e.target.value.slice(0, 500))}
+                rows={2}
+                placeholder={lang === "kn" ? "ಏನಿದೆ, ಎಷ್ಟು ದಿನದಿಂದ…" : "What's there, how long it's been…"}
+                className="min-h-11 flex-1 rounded-xl border border-white/10 bg-white/[0.04] p-3 text-sm text-white outline-none focus:border-white/25"
+              />
+              <DictateButton lang={lang} onText={(t) => setDescription((d) => (d ? `${d} ${t}` : t).slice(0, 500))} />
             </div>
           </div>
 

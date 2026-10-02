@@ -60,7 +60,22 @@ export async function GET() {
   }
 }
 
+/**
+ * Plain HTML form posts (from /lite, which works without JavaScript) can't read JSON, so they get
+ * a redirect: success -> the case page with its private code; failure -> /lite with the message.
+ * The app's own fetch() calls don't send Accept: text/html and get JSON as before.
+ */
 export async function POST(req: Request) {
+  const res = await createReport(req);
+  if (!req.headers.get("accept")?.includes("text/html")) return res;
+  const body = await res.clone().json().catch(() => ({}));
+  const to = res.ok && body.report
+    ? new URL(`/r/${body.report.id}?code=${encodeURIComponent(body.tracking_code ?? "")}`, req.url)
+    : new URL(`/lite?error=${encodeURIComponent([body.error, body.detail].filter(Boolean).join(" ") || "Something went wrong")}`, req.url);
+  return NextResponse.redirect(to, 303);
+}
+
+async function createReport(req: Request) {
   try {
     const form = await req.formData();
     const photo = form.get("photo");

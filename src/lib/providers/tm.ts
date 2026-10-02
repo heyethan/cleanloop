@@ -47,7 +47,13 @@ interface Loaded {
   size: number;
 }
 
-let loading: Promise<Loaded> | null = null;
+/*
+ * One model per PROCESS, not per module copy. Next bundles each route separately, so two routes
+ * (report, resolve) can each import this file into the same server process; tfjs keeps one
+ * global variable registry, and a second load fails with "Variable with name Conv1/kernel was
+ * already registered". Keeping the promise on globalThis makes every copy share the first load.
+ */
+const g = globalThis as unknown as { __cleanloopTm?: Promise<Loaded> | null };
 
 async function load(): Promise<Loaded> {
   const [modelJson, meta] = await Promise.all([
@@ -77,11 +83,11 @@ async function load(): Promise<Loaded> {
 }
 
 function ready(): Promise<Loaded> {
-  loading ??= load().catch((e) => {
-    loading = null; // let the next request retry instead of caching the failure
+  g.__cleanloopTm ??= load().catch((e) => {
+    g.__cleanloopTm = null; // let the next request retry instead of caching the failure
     throw e;
   });
-  return loading;
+  return g.__cleanloopTm;
 }
 
 /** Same preprocessing as TM: centre square crop, resize, scale pixels to [-1, 1]. */
