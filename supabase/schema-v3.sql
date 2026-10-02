@@ -53,8 +53,9 @@ alter table reports add column if not exists source_id text;
 alter table reports add column if not exists source_attribution text;
 alter table reports add column if not exists source_url text;
 alter table reports add column if not exists is_public boolean not null default true;
-create unique index if not exists reports_source_uidx on reports (source, source_id)
-  where source_id is not null;
+-- Plain (not partial) so upserts can target it; NULL source_ids (our own cases) never collide.
+drop index if exists reports_source_uidx;
+create unique index if not exists reports_source_key on reports (source, source_id);
 create index if not exists reports_ward_idx on reports (ward_id);
 create index if not exists reports_corporation_idx on reports (corporation);
 

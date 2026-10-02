@@ -20,6 +20,7 @@ import { pickOfficial, type Official } from "../src/lib/officials.ts";
 import { signAction, verifyAction } from "../src/lib/actionToken.ts";
 import { isReporter, hashCode } from "../src/lib/reporter.ts";
 import { slaState, median } from "../src/lib/sla.ts";
+import { mapNammaKasa } from "./nammakasa-map.ts";
 import {
   statusFromVerification,
   stubProvider,
@@ -298,6 +299,33 @@ check("median: odd, even, empty", () => {
   assert.equal(median([3, 1, 2]), 2);
   assert.equal(median([4, 1, 2, 3]), 2.5);
   assert.equal(median([]), null);
+});
+
+console.log("NammaKasa import:");
+const nk = {
+  id: "abc", latitude: 12.97966, longitude: 77.59072, address: "MG Road", severity: "massive",
+  category: "biomedical", status: "unresolved", photo_url: "https://x/p.jpg", created_at: "2026-05-01T10:00:00Z",
+  ward_number_369: 4, upvote_count: 3, resolved_by_name: "Some Person", reporter_name: "Someone",
+  notes: "private", moderation_metadata: { score: 0.9 }, fingerprint: "fp", resolution_status: null, resolved_photo_url: null,
+};
+check("mapNammaKasa: maps category/severity/status, ward from coordinates, attribution on every row", () => {
+  const m = mapNammaKasa(nk)!;
+  assert.equal(m.waste_type, "hazardous");
+  assert.equal(m.severity, 5);
+  assert.equal(m.status, "open");
+  assert.equal(m.source, "nammakasa");
+  assert.equal(m.source_id, "abc");
+  assert.ok(m.source_attribution?.includes("NammaKasa"));
+  assert.equal(m.corporation, "Central");
+  assert.equal(m.is_seed, false);
+});
+check("mapNammaKasa: never copies names, notes, moderation data or fingerprints", () => {
+  const flat = JSON.stringify(mapNammaKasa(nk));
+  for (const leak of ["Some Person", "Someone", "private", "fingerprint", "fp\"", "score"]) assert.ok(!flat.includes(leak), leak);
+});
+check("mapNammaKasa: resolved cases map to verified_resolved; out-of-city points are skipped", () => {
+  assert.equal(mapNammaKasa({ ...nk, status: "resolved", resolution_status: "approved" })!.status, "verified_resolved");
+  assert.equal(mapNammaKasa({ ...nk, latitude: 0, longitude: 0 }), null);
 });
 
 console.log(`\n${passed} checks passed`);

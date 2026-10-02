@@ -24,7 +24,7 @@ export async function GET() {
     const [reports, resolutions, facilities] = await Promise.all([
       // lat/lng/ward_id are needed for the durability check below, which asks whether a
       // verified spot later had waste reported within 50m of it.
-      db.from("reports").select("id,status,created_at,is_seed,lat,lng,ward_id"),
+      db.from("reports").select("id,status,created_at,is_seed,lat,lng,ward_id").eq("source", "cleanloop"),
       // Deliberately NOT filtered to verified_at — the integrity number counts the claims
       // that FAILED, and a failed claim never gets a verified_at.
       db.from("resolutions").select("report_id,verified_at,ai_verification_result"),

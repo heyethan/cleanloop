@@ -23,7 +23,7 @@
 
 import { notFound } from "next/navigation";
 import ImpactPack from "@/components/ImpactPack";
-import { serverClient } from "@/lib/supabase";
+import { serverClient, PUBLIC_REPORT_COLUMNS } from "@/lib/supabase";
 import { firstVerifiedAt, refilledAfterVerification } from "@/lib/durability";
 import { wardName } from "@/lib/wards";
 import type { Report, Resolution } from "@/lib/types";
@@ -84,12 +84,12 @@ export default async function ImpactPage({
      * for the display path once `reports` passes ~10k.
      */
     const [r, res] = await Promise.all([
-      db.from("reports").select("*"),
+      db.from("reports").select(PUBLIC_REPORT_COLUMNS).eq("source", "cleanloop"),
       db.from("resolutions").select("*"),
     ]);
     if (r.error) throw new Error(r.error.message);
     if (res.error) throw new Error(res.error.message);
-    reports = (r.data ?? []) as Report[];
+    reports = (r.data ?? []) as unknown as Report[];
     resolutions = (res.data ?? []) as Resolution[];
   } catch {
     // A Server Component that throws during render is a full-screen error boundary, live, in

@@ -85,6 +85,7 @@ export async function findRecurring(
   const { data, error } = await db
     .from("reports")
     .select("*")
+    .eq("source", "cleanloop") // imported cases never make ours "recurring"
     .gte("lat", lat - dLat)
     .lte("lat", lat + dLat)
     .gte("lng", lng - dLng)
@@ -124,6 +125,7 @@ export async function findVerifiedNearby(
   const { data, error } = await db
     .from("reports")
     .select("*")
+    .eq("source", "cleanloop") // never reopen another platform's case
     .eq("status", "verified_resolved")
     .gte("lat", lat - dLat)
     .lte("lat", lat + dLat)

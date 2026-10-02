@@ -48,13 +48,18 @@ const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp"];
 export async function GET() {
   try {
     const db = serverClient();
-    const { data, error } = await db
-      .from("reports")
-      .select(PUBLIC_REPORT_COLUMNS)
-      .order("created_at", { ascending: false })
-      .limit(500);
-    if (error) throw new Error(error.message);
-    return NextResponse.json({ reports: data ?? [] });
+    /*
+     * Two queries, not one: the API caps a response at 1000 rows, and ~1.5k live imports sorted
+     * by date would push our own cases off the map. Ours are always complete; imports are the
+     * newest 800 of the live subset (src/lib/../scripts/import-nammakasa.ts sets is_public).
+     */
+    const [ours, imported] = await Promise.all([
+      db.from("reports").select(PUBLIC_REPORT_COLUMNS).eq("source", "cleanloop").order("created_at", { ascending: false }).limit(1000),
+      db.from("reports").select(PUBLIC_REPORT_COLUMNS).neq("source", "cleanloop").eq("is_public", true).order("created_at", { ascending: false }).limit(800),
+    ]);
+    if (ours.error) throw new Error(ours.error.message);
+    if (imported.error) throw new Error(imported.error.message);
+    return NextResponse.json({ reports: [...(ours.data ?? []), ...(imported.data ?? [])] });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }

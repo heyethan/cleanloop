@@ -26,6 +26,7 @@ export default async function OpsPage({ searchParams }: { searchParams: Promise<
     .from("reports")
     .select("id, created_at, acknowledged_at, verified_at, closed_at, status, category, waste_type, road_issue, severity, corporation, zone, gba_ward_id, photo_before_url, is_seed, is_recurring, reopen_count, assigned_to, eta_at, description")
     .in("status", ["open", "claimed"])
+    .or("source.eq.cleanloop,is_public.eq.true")
     .limit(300);
   if (corp && CORPS.includes(corp)) q = q.eq("corporation", corp);
   if (zone) q = q.eq("zone", zone);

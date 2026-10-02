@@ -25,6 +25,7 @@ export default async function LitePage({ searchParams }: { searchParams: Promise
   const { data } = await serverClient()
     .from("reports")
     .select("id, created_at, status, waste_type, road_issue, category, severity, zone, corporation")
+    .or("source.eq.cleanloop,is_public.eq.true")
     .order("created_at", { ascending: false })
     .limit(40);
 

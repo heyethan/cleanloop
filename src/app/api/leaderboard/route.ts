@@ -13,7 +13,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { serverClient } from "@/lib/supabase";
+import { serverClient, PUBLIC_REPORT_COLUMNS } from "@/lib/supabase";
 import { WARDS } from "@/lib/wards";
 import type { Report, Resolution } from "@/lib/types";
 
@@ -31,13 +31,13 @@ export async function GET() {
     const db = serverClient();
 
     const [reportsRes, resolutionsRes] = await Promise.all([
-      db.from("reports").select("*"),
+      db.from("reports").select(PUBLIC_REPORT_COLUMNS).eq("source", "cleanloop"),
       db.from("resolutions").select("*").not("verified_at", "is", null),
     ]);
     if (reportsRes.error) throw new Error(reportsRes.error.message);
     if (resolutionsRes.error) throw new Error(resolutionsRes.error.message);
 
-    const reports = (reportsRes.data ?? []) as Report[];
+    const reports = (reportsRes.data ?? []) as unknown as Report[];
     const resolutions = (resolutionsRes.data ?? []) as Resolution[];
 
     // Earliest verified resolution per report — a report can accrue several attempts
