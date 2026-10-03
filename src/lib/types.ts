@@ -83,6 +83,68 @@ export interface Report {
   is_public?: boolean;
 }
 
+/**
+ * What the map and list need for one case — GET /api/reports. The full row (text, timeline
+ * fields, the responsible official) loads on open from GET /api/reports/[id].
+ */
+export interface Pin {
+  id: string;
+  lat: number;
+  lng: number;
+  status: ReportStatus;
+  severity: number;
+  category: "waste" | "road";
+  waste_type: WasteType | null;
+  road_issue: string | null;
+  is_recurring: boolean;
+  created_at: string; // ISO-8601
+  photo_before_url: string;
+  ward_name: string | null;
+  zone: string | null;
+  /** Past its resolve deadline (src/lib/areas.ts isOverdue). Never true for imported cases. */
+  overdue: boolean;
+}
+
+/** GET /api/areas — one GBA ward (MultiPolygon feature properties). */
+export interface WardArea {
+  id: string;
+  ward_no: number;
+  name: string;
+  name_kn: string;
+  zone: string;
+  corporation: string;
+  open: number;
+  overdue: number;
+}
+
+/** GET /api/areas — one GBA zone (outline feature properties). bbox is [west, south, east, north]. */
+export interface ZoneArea {
+  zone: string;
+  corporation: string;
+  bbox: [number, number, number, number];
+  open: number;
+  overdue: number;
+}
+
+export interface Areas {
+  wards: { type: "FeatureCollection"; features: { type: "Feature"; geometry: { type: "MultiPolygon"; coordinates: number[][][][] }; properties: WardArea }[] };
+  zones: { type: "FeatureCollection"; features: { type: "Feature"; geometry: { type: "MultiLineString"; coordinates: number[][][] }; properties: ZoneArea }[] };
+}
+
+/** A zone or ward as the UI handles it: hover pill, tap card, search row, fly target. */
+export interface AreaPick {
+  kind: "zone" | "ward";
+  /** Ward id ("south-28") or zone name. */
+  id: string;
+  name: string;
+  name_kn: string | null;
+  zone: string;
+  corporation: string;
+  open: number;
+  overdue: number;
+  bbox: [number, number, number, number];
+}
+
 export interface ReportEvent {
   id: number;
   report_id: string;

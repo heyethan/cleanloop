@@ -26,6 +26,7 @@ import type { Report, Resolution } from "./types";
 
 export interface RefilledSpot {
   report_id: string;
+  /** GBA ward id. */
   ward_id: string | null;
   /** Whole days between the verification and the first report that reappeared nearby. */
   days_held: number;
@@ -95,7 +96,7 @@ export function refilledAfterVerification(
     const ms = new Date(firstRefill.created_at).getTime() - new Date(verifiedAt).getTime();
     items.push({
       report_id: spot.id,
-      ward_id: spot.ward_id,
+      ward_id: spot.gba_ward_id ?? null,
       days_held: Math.max(0, Math.round(ms / 86_400_000)),
     });
   }

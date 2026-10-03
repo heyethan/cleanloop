@@ -5,9 +5,14 @@
  *
  * Importers/callers: Next.js App Router renders this at "/".
  * Affected API: none exported; composes Map3D, ListView, ReportSheet, ResolveSheet,
- * Leaderboard.
- * Data schemas: holds Report[] in state (created_at ISO-8601); calls GET /api/stats for
+ * Leaderboard, CommandPalette, OfficialsIsland, BottomSheet (all but Map3D/ListView lazy).
+ * Data schemas: holds Pin[] (GET /api/reports, created_at ISO-8601), Areas (GET /api/areas),
+ * IslandOfficial[] (GET /api/officials-summary); calls GET /api/stats for
  * {total, open, claimed, verified, verified_rate, median_days_to_verified, real_facilities}.
+ *
+ * Desktop (>= 1024px): floating island top-left, officials stack on the right edge, hover names
+ * an area. Phone: the island is a draggable bottom sheet; the Report button and the officials
+ * strip sit together in the thumb zone above it; tapping an area opens a card (no hover).
  * User instruction, verbatim: "1. We already have a map view... give an option for list
  * view as well 2. Create a severity filter dropdown and status filter as well
  * 3. Localization option with english or kannada, english by default 4. let map view be
@@ -26,17 +31,25 @@ import MapLoader from "@/components/MapLoader";
 import { motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useReports, filterReports } from "@/lib/useReports";
-import ReportSheet from "@/components/ReportSheet";
-import ResolveSheet from "@/components/ResolveSheet";
-import Leaderboard from "@/components/Leaderboard";
 import ListView, { type SortMode } from "@/components/ListView";
 import Island, { IslandCollapse } from "@/components/Island";
-import CommandPalette from "@/components/CommandPalette";
-import { WARDS } from "@/lib/wards";
-import officialWards from "@/data/wards.json";
+import BottomSheet, { type Snap } from "@/components/BottomSheet";
+import Face from "@/components/Face";
 import { useLang } from "@/lib/i18n";
+import { areaPicks } from "@/lib/areaPicks";
 import type { MapHandle, MapMode } from "@/components/Map3D";
-import type { Report, ReportStatus } from "@/lib/types";
+import type { AreaPick, Areas, Pin, ReportStatus } from "@/lib/types";
+import type { IslandOfficial } from "@/lib/areas";
+
+/*
+ * Everything that is not on screen at first paint loads on demand. Map3D was already lazy;
+ * these five were ~a third of the initial JS between them.
+ */
+const ReportSheet = dynamic(() => import("@/components/ReportSheet"));
+const ResolveSheet = dynamic(() => import("@/components/ResolveSheet"));
+const Leaderboard = dynamic(() => import("@/components/Leaderboard"));
+const CommandPalette = dynamic(() => import("@/components/CommandPalette"));
+const OfficialsIsland = dynamic(() => import("@/components/OfficialsIsland"));
 
 const Map3D = dynamic(() => import("@/components/Map3D"), {
   ssr: false,
@@ -71,20 +84,24 @@ interface Stats {
 type View = "map" | "list";
 
 export default function Home() {
-  const { reports, error, setReports } = useReports();
+  const { reports, error, upsertLocal } = useReports();
   const { lang, setLang, t } = useLang();
   const [stats, setStats] = useState<Stats | null>(null);
   const [reporting, setReporting] = useState(false);
-  const [selected, setSelected] = useState<Report | null>(null);
+  const [selected, setSelected] = useState<Pin | null>(null);
   const [showBoard, setShowBoard] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [showFacilities, setShowFacilities] = useState(true);
-  const [ward, setWard] = useState<string | null>(null);
+  const [zone, setZone] = useState<string | null>(null);
+  /** Ward name, set by "See cases" on a ward card. */
+  const [wardFilter, setWardFilter] = useState<string | null>(null);
   /** True once MapLibre has painted. Drives the loader overlay, nothing else. */
   const [mapReady, setMapReady] = useState(false);
   const [status, setStatus] = useState<ReportStatus | null>(null);
   const [severity, setSeverity] = useState<number | null>(null);
   const [view, setView] = useState<View>("map");
+  const [listSeen, setListSeen] = useState(false);
+  if (view === "list" && !listSeen) setListSeen(true);
   const [mapMode, setMapMode] = useState<MapMode>("3d");
   const [sort, setSort] = useState<SortMode>("severity");
   /*
@@ -97,22 +114,51 @@ export default function Home() {
   }, []);
   const mapRef = useRef<MapHandle>(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [activeWard, setActiveWard] = useState<{
-    id: string;
-    name: string;
-    kind: "official" | "cluster";
-  } | null>(null);
+  /** The palette chunk loads on first open, then stays mounted so its exit animation runs. */
+  const [paletteLoaded, setPaletteLoaded] = useState(false);
+  /** Area under the pointer (desktop) — named in the pill above the Report button. */
+  const [activeArea, setActiveArea] = useState<AreaPick | null>(null);
+  /** Area last tapped on a phone — shown as a card with Zoom in / See cases. */
+  const [tappedArea, setTappedArea] = useState<AreaPick | null>(null);
+  const [snap, setSnap] = useState<Snap>("peek");
 
-  /** Ward ids OSM actually has a surveyed boundary for — 5 of 12 at time of writing. */
-  const officialIds = useMemo(
-    () =>
-      new Set(
-        (officialWards as { features: { properties: { id: string } }[] }).features.map(
-          (f) => f.properties.id,
-        ),
-      ),
-    [],
-  );
+  // GBA zones + wards (geometry and live counts) and the officials island. Both edge-cached.
+  const [areas, setAreas] = useState<Areas | null>(null);
+  const [officials, setOfficials] = useState<IslandOfficial[]>([]);
+  useEffect(() => {
+    fetch("/api/areas")
+      .then((r) => r.json())
+      .then((j) => !j.error && setAreas(j))
+      .catch(() => {
+        /* the map still works without area outlines */
+      });
+    fetch("/api/officials-summary")
+      .then((r) => r.json())
+      .then((j) => !j.error && setOfficials(j.officials))
+      .catch(() => {
+        /* no faces is better than a broken page */
+      });
+  }, []);
+  const picks = useMemo(() => (areas ? areaPicks(areas) : []), [areas]);
+
+  // ⌘K / Ctrl+K lives here, not in the lazy palette, so it works before that chunk loads.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteLoaded(true);
+        setSearchOpen(true);
+      }
+      // Esc clears an official's pin (sheets and the palette handle their own Esc).
+      if (e.key === "Escape") mapRef.current?.clearMarker();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const openSearch = useCallback(() => {
+    setPaletteLoaded(true);
+    setSearchOpen(true);
+  }, []);
 
   /*
    * Publish the island's LIVE height as --island-h so ListView can pad by it.
@@ -124,20 +170,7 @@ export default function Home() {
    * measure it instead of guessing again.
    */
   const headerRef = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const el = headerRef.current;
-    if (!el) return;
-    const publish = () => {
-      document.documentElement.style.setProperty(
-        "--island-h",
-        `${Math.round(el.getBoundingClientRect().height)}px`,
-      );
-    };
-    publish();
-    const ro = new ResizeObserver(publish);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  // (The effect that publishes it sits below `wide`: the header only exists on desktop.)
 
   /*
    * The island is a MAP heads-up display. Over a scrolling list it is only an occluder,
@@ -156,7 +189,10 @@ export default function Home() {
      * sequence (thumb lands, then the panel folds) rather than a collision.
      */
     const delay = reduceMotion ? 0 : SEG_SPRING.duration * 1000 + 60;
-    const timer = window.setTimeout(() => setIslandOpen(false), delay);
+    const timer = window.setTimeout(() => {
+      setIslandOpen(false);
+      setSnap("peek");
+    }, delay);
     return () => window.clearTimeout(timer);
   }, [view, reduceMotion]);
 
@@ -172,21 +208,74 @@ export default function Home() {
   const [wide, setWide] = useState(false);
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 1024px)");
-    const sync = () => setWide(mq.matches);
+    let first = true;
+    const sync = () => {
+      setWide(mq.matches);
+      // Phones start flat: a pitched 3D city costs GPU and battery for little gain at 6".
+      if (first && !mq.matches) setMapMode("2d");
+      first = false;
+      // No top island on a phone, so the list starts at the safe-area edge.
+      if (!mq.matches) document.documentElement.style.setProperty("--island-h", "0px");
+    };
     sync();
     mq.addEventListener("change", sync);
     return () => mq.removeEventListener("change", sync);
   }, []);
 
+  // Re-attach whenever the desktop header mounts (it is not rendered until the layout is known).
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const publish = () => {
+      document.documentElement.style.setProperty(
+        "--island-h",
+        `${Math.round(el.getBoundingClientRect().height)}px`,
+      );
+    };
+    publish();
+    const ro = new ResizeObserver(publish);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [wide]);
+
   /** How many filters are narrowing the map right now — surfaced on the filter button. */
   const activeFilterCount =
-    (ward ? 1 : 0) + (status ? 1 : 0) + (severity !== null ? 1 : 0);
+    (zone || wardFilter ? 1 : 0) + (status ? 1 : 0) + (severity !== null ? 1 : 0);
 
-  const flyToWard = useCallback((wardId: string) => {
-    setView("map");
+  /** Get the chrome out of the way: collapse the island, drop the sheet to peek. */
+  const collapseChrome = useCallback(() => {
     setIslandOpen(false);
-    mapRef.current?.flyToWard(wardId);
+    setSnap("peek");
   }, []);
+
+  const flyToArea = useCallback(
+    (a: AreaPick) => {
+      setView("map");
+      collapseChrome();
+      setTappedArea(null);
+      mapRef.current?.flyToArea(a);
+    },
+    [collapseChrome],
+  );
+
+  /** An official's face was clicked: frame every zone they answer for and drop their pin. */
+  const showOfficial = useCallback(
+    (o: IslandOfficial) => {
+      setView("map");
+      collapseChrome();
+      setTappedArea(null);
+      const zones = picks.filter((p) => p.kind === "zone" && o.zones.includes(p.id));
+      mapRef.current?.showOfficial(zones, { name: o.name, photo_url: o.photo_url });
+    },
+    [picks, collapseChrome],
+  );
+
+  /** The official for an area card: the zone's, else its corporation's. */
+  const officialFor = (a: AreaPick) =>
+    officials.find((o) => o.level === "zone" && o.area === a.zone) ??
+    officials.find((o) => o.level === "corporation" && o.area === `${a.corporation} corporation`);
+
+  const overdueCount = useMemo(() => reports.filter((r) => r.overdue).length, [reports]);
 
   /*
    * MUST be memoised. filterReports returns a new array identity on every call, and this
@@ -194,9 +283,9 @@ export default function Home() {
    * the GPU on every render.
    */
   const visible = useMemo(() => {
-    const base = filterReports(reports, { ward, status });
+    const base = filterReports(reports, { zone, status }).filter((r) => !wardFilter || r.ward_name === wardFilter);
     return severity === null ? base : base.filter((r) => r.severity === severity);
-  }, [reports, ward, status, severity]);
+  }, [reports, zone, wardFilter, status, severity]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -213,13 +302,13 @@ export default function Home() {
   }, [loadStats]);
 
 
-  const handleSelect = useCallback((r: Report) => {
+  const handleSelect = useCallback((r: Pin) => {
     setSelected(r);
     // Collapse the island as a sheet takes over: two glass layers stacked on each other
     // is exactly the "light material on light material" the HIG warns about.
-    setIslandOpen(false);
+    collapseChrome();
     mapRef.current?.flyToReport(r);
-  }, []);
+  }, [collapseChrome]);
 
   /*
    * /?case=<id> opens that case's cleanup sheet. It is how an official's "mark resolved"
@@ -235,95 +324,12 @@ export default function Home() {
     if (r) handleSelect(r);
   }, [reports, handleSelect]);
 
-  return (
-    <main className="relative h-[100dvh] w-full overflow-hidden bg-[#070a0f] text-white">
-      {/*
-        BOTH layers stay mounted, always.
 
-        This used to be a `view === "map" ? <Map3D/> : <ListView/>` ternary. Map3D is a
-        `next/dynamic` ssr:false import, so switching to the list DESTROYED the MapLibre
-        instance: coming back rebuilt the map, refetched the style and every vector tile,
-        and reset the camera to fitBounds. That teardown-and-rebuild was the "glitch/delay"
-        on the view switch — it was never a loading state, so a skeleton would have hidden
-        it rather than fixed it.
-
-        Kept mounted and crossfaded, the switch is instant and the camera survives the
-        round trip. The cost is one live GL context while you are reading the list, which
-        is far cheaper than re-initialising the whole map every toggle.
-      */}
-      <div className="absolute inset-0">
-        <div
-          aria-hidden={view !== "map" && !wide}
-          className="absolute inset-0 transition-opacity duration-[420ms] ease-[cubic-bezier(0.32,0.72,0,1)]"
-          style={{
-            // On a wide screen the map never hides — the list docks beside it.
-            opacity: wide || view === "map" ? 1 : 0,
-            pointerEvents: wide || view === "map" ? "auto" : "none",
-          }}
-        >
-          <Map3D
-            ref={mapRef}
-            reports={visible}
-            onSelect={handleSelect}
-            showFacilities={showFacilities}
-            mode={mapMode}
-            onActiveWard={setActiveWard}
-            onReady={() => setMapReady(true)}
-          />
-          {/*
-            Importers/callers: this route only. Affected API: none exported.
-            Data schemas: none; MapLoader renders no data.
-            User instruction, verbatim: "implement a loader animation using animation.js
-            three.js or wtv so that map loads by the time it's done."
-
-            Mounted inside the map wrapper so it covers exactly the area that sits blank
-            while MapLibre fetches its style and first tiles.
-          */}
-          <MapLoader ready={mapReady} lang={lang} />
-        </div>
-
-        <div
-          aria-hidden={view !== "list"}
-          className={`absolute inset-y-0 left-0 transition-opacity duration-[420ms] ease-[cubic-bezier(0.32,0.72,0,1)] ${
-            wide
-              ? "w-[440px] border-r border-white/10 shadow-[8px_0_40px_-12px_rgba(0,0,0,0.9)]"
-              : "right-0"
-          }`}
-          style={{
-            opacity: view === "list" ? 1 : 0,
-            pointerEvents: view === "list" ? "auto" : "none",
-          }}
-        >
-          <ListView
-            reports={visible}
-            sort={sort}
-            onSort={setSort}
-            onSelect={(r) => setSelected(r)}
-            onBackToMap={() => setView("map")}
-            lang={lang}
-          />
-        </div>
-      </div>
-
-      {view === "map" && (
-        <>
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-56 bg-gradient-to-b from-black/80 via-black/40 to-transparent" />
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-52 bg-gradient-to-t from-black/85 via-black/45 to-transparent" />
-        </>
-      )}
-
-      {/* ---------------------------------------------------------------- header */}
-      <header
-        ref={headerRef}
-        className="pointer-events-none absolute top-0 z-30 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] left-0 right-0 lg:right-auto lg:w-[440px]"
-      >
-        <Island
-          open={islandOpen}
-          onToggle={() => setIslandOpen((v) => !v)}
-          collapsedMetric={String(stats?.verified ?? "—")}
-          collapsedLabel={t("verified_clean")}
-          expanded={
-            <>
+  /*
+   * The island's sections, defined once and laid out twice: top-down in the desktop island,
+   * search-first in the phone bottom sheet (peek height shows search + stats).
+   */
+  const titleRow = (
             <div className="flex items-start justify-between gap-3">
               <div>
                 {/* Letter-spacing splits Kannada conjuncts apart, so only track Latin. */}
@@ -354,13 +360,18 @@ export default function Home() {
                   value={lang}
                   onChange={(v) => setLang(v as "en" | "kn")}
                 />
-                <IslandCollapse
-                  onClick={() => setIslandOpen(false)}
-                  label="Collapse panel"
-                />
+                {wide && (
+                  <IslandCollapse
+                    onClick={() => setIslandOpen(false)}
+                    label="Collapse panel"
+                  />
+                )}
               </div>
             </div>
 
+  );
+  const statsRow = (
+    <>
             {/*
               ANCHOR: verified first, biggest. Never lead with complaint volume.
 
@@ -402,6 +413,10 @@ export default function Home() {
               </div>
             </div>
 
+    </>
+  );
+  const durabilityRow = (
+    <>
             {/*
               DURABLE VERIFICATION — the two claims no incumbent can make.
               Rejected claims: nobody else publishes a rejection rate because nobody else
@@ -430,9 +445,6 @@ export default function Home() {
                     {t("spots_refilled")}
                   </div>
                 </div>
-                <p className="col-span-2 -mt-0.5 text-[11px] leading-relaxed text-white/45">
-                  {t("durability_note")}
-                </p>
 
                 {/*
                   Entry to the sponsor evidence pack — a different audience's surface, so a
@@ -441,9 +453,9 @@ export default function Home() {
                   claims: that page leads with its rejection log, and picking the busiest ward
                   instead would often open one whose hero section is empty.
                 */}
-                {(ward ?? stats.top_rejection_ward) && (
+                {stats.top_rejection_ward && (
                   <a
-                    href={`/impact/${ward ?? stats.top_rejection_ward}`}
+                    href={`/impact/${stats.top_rejection_ward}`}
                     className="col-span-2 flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-[12px] text-white/70 transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-white/[0.08] hover:text-white active:scale-[0.99]"
                   >
                     {t("sponsor_pack")}
@@ -469,6 +481,10 @@ export default function Home() {
               </div>
             )}
 
+    </>
+  );
+  const viewRow = (
+    <>
             {/* view + dimension switches */}
             <div className="mt-3.5 flex items-center gap-2">
               <Segmented
@@ -497,10 +513,14 @@ export default function Home() {
               )}
             </div>
 
+    </>
+  );
+  const searchRow = (
+    <>
             {/* Locality search + leaderboard. Wards moved here off the title row. */}
             <div className="mt-3 flex items-center gap-2">
               <button
-                onClick={() => setSearchOpen(true)}
+                onClick={openSearch}
                 className="group flex h-11 flex-1 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3.5 text-xs font-medium text-white/60 transition-colors duration-300 hover:text-white/85"
               >
                 <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -528,6 +548,10 @@ export default function Home() {
               </button>
             </div>
 
+    </>
+  );
+  const legendRow = (
+    <>
             {/*
               GRID SYMMETRY. Measured at 393px, the two rows above this one are both
               [bordered wide control ending x=258/260] + [8px gap] + [~90px control
@@ -548,6 +572,11 @@ export default function Home() {
               */}
               <div className="flex h-11 min-w-0 flex-1 items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.04] px-3 text-[11px] text-white/60">
                 <Dot colour="#ff3b30" label={`${stats?.open ?? 0} ${t("open_count")}`} />
+                {overdueCount > 0 && (
+                  <span className="shrink-0 rounded-full bg-[#ff3b30]/20 px-1.5 py-0.5 text-[10px] tabular-nums text-[#ffb0a5]">
+                    {overdueCount} {t("overdue_count")}
+                  </span>
+                )}
                 <Dot colour="#ffb020" label={`${stats?.claimed ?? 0} ${t("held_count")}`} />
                 <Dot
                   colour="#22c98a"
@@ -591,6 +620,21 @@ export default function Home() {
               </button>
             </div>
 
+            {/* Road layer key: only reported segments are drawn, coloured by quality. */}
+            {view === "map" && (
+              <div className="mt-2 flex items-center gap-2 px-1 text-[10.5px] text-white/55">
+                {t("road_quality")}
+                <span className="text-white/45">{t("road_good")}</span>
+                <span aria-hidden className="h-1 w-16 rounded-full bg-gradient-to-r from-[#22c98a] via-[#8a94a6] to-[#ff5a4f]" />
+                <span className="text-white/45">{t("road_poor")}</span>
+              </div>
+            )}
+
+
+    </>
+  );
+  const filtersPanel = (
+    <>
             {/* Progressive disclosure — filters are secondary, so they stay hidden */}
             <div
               className={`grid overflow-hidden transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${
@@ -599,15 +643,23 @@ export default function Home() {
             >
               <div className="min-h-0 space-y-2">
                 <div className="flex gap-2">
-                  <Select value={ward ?? ""} onChange={(v) => setWard(v || null)}>
+                  <Select
+                    value={zone ?? ""}
+                    onChange={(v) => {
+                      setZone(v || null);
+                      setWardFilter(null);
+                    }}
+                  >
                     <option value="" className="bg-neutral-900">
-                      {t("all_wards")}
+                      {wardFilter ?? t("all_zones")}
                     </option>
-                    {WARDS.map((w) => (
-                      <option key={w.id} value={w.id} className="bg-neutral-900">
-                        {w.name}
-                      </option>
-                    ))}
+                    {picks
+                      .filter((a) => a.kind === "zone")
+                      .map((z) => (
+                        <option key={z.id} value={z.id} className="bg-neutral-900">
+                          {z.name}
+                        </option>
+                      ))}
                   </Select>
                   <Select
                     value={status ?? ""}
@@ -661,10 +713,128 @@ export default function Home() {
             </div>
 
             {error && <div className="mt-2 text-[11px] text-red-400">{error}</div>}
-            </>
-          }
-        />
-      </header>
+    </>
+  );
+
+  return (
+    <main className="relative h-[100dvh] w-full overflow-hidden bg-[#070a0f] text-white">
+      {/*
+        BOTH layers stay mounted, always.
+
+        This used to be a `view === "map" ? <Map3D/> : <ListView/>` ternary. Map3D is a
+        `next/dynamic` ssr:false import, so switching to the list DESTROYED the MapLibre
+        instance: coming back rebuilt the map, refetched the style and every vector tile,
+        and reset the camera to fitBounds. That teardown-and-rebuild was the "glitch/delay"
+        on the view switch — it was never a loading state, so a skeleton would have hidden
+        it rather than fixed it.
+
+        Kept mounted and crossfaded, the switch is instant and the camera survives the
+        round trip. The cost is one live GL context while you are reading the list, which
+        is far cheaper than re-initialising the whole map every toggle.
+      */}
+      <div className="absolute inset-0">
+        <div
+          aria-hidden={view !== "map" && !wide}
+          className="absolute inset-0 transition-opacity duration-[420ms] ease-[cubic-bezier(0.32,0.72,0,1)]"
+          style={{
+            // On a wide screen the map never hides — the list docks beside it.
+            opacity: wide || view === "map" ? 1 : 0,
+            pointerEvents: wide || view === "map" ? "auto" : "none",
+          }}
+        >
+          <Map3D
+            ref={mapRef}
+            reports={visible}
+            onSelect={handleSelect}
+            areas={areas}
+            showFacilities={showFacilities}
+            mode={mapMode}
+            onActiveArea={setActiveArea}
+            onTapArea={wide ? undefined : setTappedArea}
+            flyOnClick={wide}
+            onReady={() => setMapReady(true)}
+          />
+          {/*
+            Importers/callers: this route only. Affected API: none exported.
+            Data schemas: none; MapLoader renders no data.
+            User instruction, verbatim: "implement a loader animation using animation.js
+            three.js or wtv so that map loads by the time it's done."
+
+            Mounted inside the map wrapper so it covers exactly the area that sits blank
+            while MapLibre fetches its style and first tiles.
+          */}
+          <MapLoader ready={mapReady} lang={lang} />
+        </div>
+
+        <div
+          aria-hidden={view !== "list"}
+          className={`absolute inset-y-0 left-0 transition-opacity duration-[420ms] ease-[cubic-bezier(0.32,0.72,0,1)] ${
+            wide
+              ? "w-[440px] border-r border-white/10 shadow-[8px_0_40px_-12px_rgba(0,0,0,0.9)]"
+              : "right-0"
+          }`}
+          style={{
+            opacity: view === "list" ? 1 : 0,
+            pointerEvents: view === "list" ? "auto" : "none",
+          }}
+        >
+          {/*
+            Mounted on first use, then kept. Hidden at opacity 0 it still sat in the viewport,
+            so its first ~40 photos (several MB) downloaded on every page load for a list
+            nobody had opened.
+          */}
+          {listSeen && (
+          <ListView
+            reports={visible}
+            sort={sort}
+            onSort={setSort}
+            onSelect={(r) => setSelected(r)}
+            onBackToMap={() => setView("map")}
+            lang={lang}
+          />
+          )}
+        </div>
+      </div>
+
+      {view === "map" && wide && (
+        <>
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-56 bg-gradient-to-b from-black/80 via-black/40 to-transparent" />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-52 bg-gradient-to-t from-black/85 via-black/45 to-transparent" />
+        </>
+      )}
+      {/*
+        ---------------------------------------------------------------- header (desktop)
+        Desktop-vs-phone chrome is chosen by CSS (lg:), not by `wide`: "/" is prerendered with no
+        viewport, so a JS switch either flashed the phone sheet on desktop or (gated) held the
+        phone's largest paint back until hydration (LCP 1.7 s -> 4.4 s, measured).
+      */}
+        <header
+          ref={headerRef}
+          className="pointer-events-none absolute left-0 top-0 z-30 hidden w-[440px] px-3 pt-[max(0.75rem,env(safe-area-inset-top))] lg:block"
+        >
+          <Island
+            open={islandOpen}
+            onToggle={() => setIslandOpen((v) => !v)}
+            collapsedMetric={String(stats?.verified ?? "—")}
+            collapsedLabel={t("verified_clean")}
+            expanded={
+              <>
+                {titleRow}
+                {statsRow}
+                {durabilityRow}
+                {viewRow}
+                {searchRow}
+                {legendRow}
+                {filtersPanel}
+              </>
+            }
+          />
+        </header>
+
+      {/* Officials: a stack on the map's right edge (desktop). Phones get a strip below. */}
+      {wide && view === "map" && (
+        <OfficialsIsland officials={officials} wide lang={lang} onShow={showOfficial} />
+      )}
 
       {/* ------------------------------------------------------------ bottom CTA */}
       {/*
@@ -673,48 +843,108 @@ export default function Home() {
         unreachable — but they were being hard-cut by the pill's edge. A short gradient
         lets content dissolve into the chrome instead of colliding with it.
       */}
-      {view === "list" && (
-        <div
-          className={`pointer-events-none absolute bottom-0 left-0 z-10 h-32 bg-gradient-to-t from-[#070a0f] via-[#070a0f]/80 to-transparent ${
-            wide ? "w-[440px]" : "right-0"
-          }`}
-        />
+      {view === "list" && wide && (
+        <div className="pointer-events-none absolute bottom-0 left-0 z-10 h-32 w-[440px] bg-gradient-to-t from-[#070a0f] via-[#070a0f]/80 to-transparent" />
       )}
 
-      <div className="absolute bottom-0 left-0 right-0 z-30 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] lg:right-auto lg:w-[440px]">
-        {/*
-          Name the outlined locality, and say WHICH KIND of shape it is. OSM has a
-          surveyed boundary for only 5 of the 12 localities; the rest fall back to a hull
-          of their own reports. Solid vs dashed here matches the map exactly, so the two
-          can never be confused for one another.
-        */}
-        {/*
-          Just the locality name. This used to read "Koramangala / Case cluster — no
-          official boundary in OpenStreetMap": a sentence about where our geometry came
-          from, floating over the map, aimed at nobody. Someone who taps a locality wants
-          to know which one they tapped. The outline itself still renders solid or dashed,
-          so the distinction is preserved for anyone who cares, without narrating it.
-        */}
-        {view === "map" && activeWard && (
-          <div className="pointer-events-none mx-auto mb-2.5 flex w-fit max-w-full items-center gap-2 rounded-full border border-white/10 bg-black/60 px-3.5 py-1.5 backdrop-blur-xl">
+      {/*
+        Thumb zone. Desktop: the Report pill at the bottom of the left column, with the hovered
+        area named above it. Phone: the officials strip and the Report pill sit together just
+        above the bottom sheet's peek height, with the tapped-area card above them.
+      */}
+      <div className="pointer-events-none absolute bottom-[176px] left-0 right-0 z-20 px-4 lg:bottom-0 lg:right-auto lg:w-[440px] lg:pb-[max(1rem,env(safe-area-inset-bottom))]">
+        {view === "map" && wide && activeArea && (
+          <div className="mx-auto mb-2.5 flex w-fit max-w-full items-center gap-2 rounded-full border border-white/10 bg-black/60 px-3.5 py-1.5 backdrop-blur-xl">
             <span
               aria-hidden
               className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
-              style={{
-                border: `1.5px ${
-                  activeWard.kind === "official" ? "solid" : "dashed"
-                } ${activeWard.kind === "official" ? "#6cb6ff" : "#93a4b8"}`,
-              }}
+              style={{ border: `1.5px solid ${activeArea.kind === "zone" ? "#6cb6ff" : "#93a4b8"}` }}
             />
             <span className="truncate text-[12px] font-medium text-white/90">
-              {activeWard.name}
+              {lang === "kn" && activeArea.name_kn ? activeArea.name_kn : activeArea.name}
+              <span className="text-white/55"> · {activeArea.open} {t("open_label")}</span>
+              {activeArea.overdue > 0 && (
+                <span className="text-[#ff8a80]"> · {activeArea.overdue} {t("overdue_count")}</span>
+              )}
             </span>
           </div>
         )}
 
+        {!wide && view === "map" && tappedArea && (
+          <div
+            role="dialog"
+            aria-label={tappedArea.name}
+            className="pointer-events-auto mb-2.5 rounded-2xl border border-white/10 bg-[#0b0f15]/95 p-3.5 text-white shadow-[0_20px_50px_-20px_rgba(0,0,0,0.9)]"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="truncate text-[15px] font-semibold">
+                  {lang === "kn" && tappedArea.name_kn ? tappedArea.name_kn : tappedArea.name}
+                </div>
+                <div className="mt-0.5 text-[12px] text-white/55">
+                  {tappedArea.kind === "ward" ? `${tappedArea.zone} ${t("zone_label")} · ` : ""}
+                  {tappedArea.open} {t("open_label")}
+                  {tappedArea.overdue > 0 && (
+                    <span className="text-[#ff8a80]"> · {tappedArea.overdue} {t("overdue_count")}</span>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => setTappedArea(null)}
+                aria-label="Close"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/60"
+              >
+                ✕
+              </button>
+            </div>
+            {(() => {
+              const o = officialFor(tappedArea);
+              return (
+                o && (
+                  <div className="mt-2.5 flex items-center gap-2.5 text-[12px]">
+                    <Face name={o.name} photo={o.photo_url} size={32} />
+                    <span className="min-w-0">
+                      <span className="block truncate text-white/85">{o.name}</span>
+                      <span className="block truncate text-[11px] text-white/50">{o.role}</span>
+                    </span>
+                  </div>
+                )
+              );
+            })()}
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={() => flyToArea(tappedArea)}
+                className="h-11 flex-1 rounded-full bg-white text-[13px] font-semibold text-black"
+              >
+                {t("zoom_in")}
+              </button>
+              <button
+                onClick={() => {
+                  if (tappedArea.kind === "zone") {
+                    setZone(tappedArea.zone);
+                    setWardFilter(null);
+                  } else {
+                    setZone(null);
+                    setWardFilter(tappedArea.name);
+                  }
+                  setTappedArea(null);
+                  setView("list");
+                }}
+                className="h-11 flex-1 rounded-full border border-white/15 bg-white/5 text-[13px] font-medium text-white/85"
+              >
+                {t("see_cases")}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!wide && view === "map" && !tappedArea && (
+          <OfficialsIsland officials={officials} wide={false} lang={lang} onShow={showOfficial} />
+        )}
+
         <button
           onClick={() => setReporting(true)}
-          className="group mx-auto flex w-full max-w-md items-center justify-center gap-3 rounded-full border border-white/15 bg-white py-4 text-[15px] font-semibold text-black shadow-[0_20px_50px_-12px_rgba(255,255,255,0.35)] transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.975]"
+          className="pointer-events-auto group mx-auto mt-2 flex w-full max-w-md items-center justify-center gap-3 rounded-full border border-white/15 bg-white py-4 text-[15px] font-semibold text-black shadow-[0_20px_50px_-12px_rgba(255,255,255,0.35)] transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.975]"
         >
           {t("report_cta")}
           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-black/10 text-xs transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:-translate-y-[1px] group-hover:translate-x-0.5">
@@ -723,21 +953,52 @@ export default function Home() {
         </button>
       </div>
 
-      <CommandPalette
-        open={searchOpen}
-        onOpenChange={setSearchOpen}
-        onPick={flyToWard}
-        officialIds={officialIds}
-        lang={lang}
-      />
+      {/* ---------------------------------------------------------------- phone bottom sheet */}
+        <div className="lg:hidden">
+        <BottomSheet snap={snap} onSnap={setSnap} label="CleanLoop">
+          {searchRow}
+          {statsRow}
+          {legendRow}
+          {filtersPanel}
+          {viewRow}
+          {durabilityRow}
+          <div className="mt-4">{titleRow}</div>
+        </BottomSheet>
+        </div>
+
+      {paletteLoaded && (
+        <CommandPalette
+          open={searchOpen}
+          onOpenChange={setSearchOpen}
+          onPick={flyToArea}
+          areas={picks}
+          lang={lang}
+        />
+      )}
 
       {reporting && (
         <ReportSheet
           lang={lang}
           onClose={() => setReporting(false)}
-          onReported={(r) => {
-            setReports((prev) => [r, ...prev]);
-            mapRef.current?.flyToReport(r);
+          onReported={(r, w) => {
+            const pin: Pin = {
+              id: r.id,
+              lat: r.lat,
+              lng: r.lng,
+              status: r.status,
+              severity: r.severity,
+              category: r.category ?? "waste",
+              waste_type: r.waste_type,
+              road_issue: r.road_issue ?? null,
+              is_recurring: r.is_recurring,
+              created_at: r.created_at,
+              photo_before_url: r.photo_before_url,
+              ward_name: w?.name ?? null,
+              zone: w?.zone ?? null,
+              overdue: false,
+            };
+            upsertLocal(pin);
+            mapRef.current?.flyToReport(pin);
             loadStats();
           }}
         />
@@ -749,9 +1010,8 @@ export default function Home() {
           report={selected}
           onClose={() => setSelected(null)}
           onResolved={(id, newStatus) => {
-            setReports((prev) =>
-              prev.map((r) => (r.id === id ? { ...r, status: newStatus } : r)),
-            );
+            const r = reports.find((x) => x.id === id) ?? selected;
+            upsertLocal({ ...r, status: newStatus, overdue: newStatus === "open" || newStatus === "claimed" ? r.overdue : false });
             loadStats();
           }}
         />

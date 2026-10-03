@@ -14,7 +14,9 @@
 import assert from "node:assert/strict";
 import { splitSql } from "./sql-split.ts";
 import { nextStatus } from "../src/lib/lifecycle.ts";
-import { haversineMetres, nearestWard, wardName, WARDS } from "../src/lib/wards.ts";
+import { readFileSync } from "node:fs";
+import { haversineMetres } from "../src/lib/wards.ts";
+import { countAreas, isOverdue, officialsSummary, type CaseRow } from "../src/lib/areas.ts";
 import { wardAt, wardMeta } from "../src/lib/gbaWards.ts";
 import { pickOfficial, type Official } from "../src/lib/officials.ts";
 import { signAction, verifyAction } from "../src/lib/actionToken.ts";
@@ -62,38 +64,6 @@ check("haversine is symmetric", () => {
   const a = haversineMetres(12.91, 77.61, 13.0, 77.7);
   const b = haversineMetres(13.0, 77.7, 12.91, 77.61);
   assert.ok(Math.abs(a - b) < 1e-6);
-});
-
-console.log("wards:");
-
-check("nearestWard: exact centroid returns that ward", () => {
-  assert.equal(nearestWard(12.9357366, 77.624081)?.id, "koramangala");
-});
-
-check("nearestWard: a point 300m off still resolves to the same ward", () => {
-  assert.equal(nearestWard(12.9384, 77.624081)?.id, "koramangala");
-});
-
-check("nearestWard: far-away point returns null, not a wrong ward", () => {
-  // Mumbai — must not be assigned to a Bengaluru locality.
-  assert.equal(nearestWard(19.076, 72.8777), null);
-});
-
-check("wardName round-trips, unknown id is null", () => {
-  assert.equal(wardName("hsr-layout"), "HSR Layout");
-  assert.equal(wardName("does-not-exist"), null);
-  assert.equal(wardName(null), null);
-});
-
-check("ward ids are unique", () => {
-  assert.equal(new Set(WARDS.map((w) => w.id)).size, WARDS.length);
-});
-
-check("all ward coords are plausibly in Bengaluru", () => {
-  for (const w of WARDS) {
-    assert.ok(w.lat > 12.7 && w.lat < 13.3, `${w.id} lat out of range`);
-    assert.ok(w.lng > 77.3 && w.lng < 77.9, `${w.id} lng out of range`);
-  }
 });
 
 console.log("verification threshold:");
@@ -385,6 +355,86 @@ check("wasteIntake: screenshot and clean street are refused", () => {
 });
 check("cleanScore: a clean street split between not_garbage and good_road still counts as clean", () => {
   assert.ok(cleanScore({ not_garbage: 0.45, good_road: 0.4 }) >= 0.75);
+});
+
+console.log("areas (zones, wards, counts, officials island):");
+
+const gbaWards = JSON.parse(readFileSync(new URL("../src/data/gba-wards.json", import.meta.url), "utf8")).features as {
+  properties: { id: string; zone_name: string; corporation: string };
+  geometry: { coordinates: number[][][][] };
+}[];
+const gbaZones = JSON.parse(readFileSync(new URL("../src/data/gba-zones.json", import.meta.url), "utf8")).zones as {
+  zone_name: string; corporation: string; bbox: number[]; outline: number[][][];
+}[];
+
+check("10 zones, every ward inside its zone (same corporation, bbox contained)", () => {
+  assert.equal(gbaZones.length, 10);
+  const byName = new Map(gbaZones.map((z) => [z.zone_name, z]));
+  assert.equal(gbaWards.length, 369);
+  for (const w of gbaWards) {
+    const z = byName.get(w.properties.zone_name);
+    assert.ok(z, `${w.properties.id}: unknown zone ${w.properties.zone_name}`);
+    assert.equal(z.corporation, w.properties.corporation);
+    for (const poly of w.geometry.coordinates)
+      for (const [x, y] of poly[0])
+        assert.ok(x >= z.bbox[0] && x <= z.bbox[2] && y >= z.bbox[1] && y <= z.bbox[3], `${w.properties.id} leaves ${z.zone_name}`);
+  }
+});
+
+check("zone outlines exist and stay inside their zone's box", () => {
+  for (const z of gbaZones) {
+    assert.ok(z.outline.length > 0, `${z.zone_name} has no outline`);
+    for (const run of z.outline) for (const [x, y] of run) assert.ok(x >= z.bbox[0] && x <= z.bbox[2] && y >= z.bbox[1] && y <= z.bbox[3]);
+  }
+});
+
+const SLA = { waste: { ack_hours: 24, resolve_hours: 72 }, road: { ack_hours: 72, resolve_hours: 720 } };
+const NOW = Date.parse("2026-10-03T00:00:00Z");
+const row = (p: Partial<CaseRow>): CaseRow => ({
+  created_at: "2026-10-02T00:00:00Z", acknowledged_at: null, verified_at: null, closed_at: null, status: "open",
+  category: "waste", source: "cleanloop", description: null, gba_ward_id: "south-28", zone: "Jayanagar", corporation: "South", ...p,
+});
+const sample: CaseRow[] = [
+  row({}), // open, not yet due
+  row({ created_at: "2026-09-20T00:00:00Z" }), // overdue
+  row({ created_at: "2026-09-20T00:00:00Z", status: "claimed", zone: "Bommanahalli", gba_ward_id: "south-1" }), // overdue
+  row({ created_at: "2026-09-20T00:00:00Z", category: "road" }), // road: 30 days, not due
+  row({ created_at: "2026-09-20T00:00:00Z", status: "verified_resolved" }), // done: not counted
+  row({ created_at: "2026-09-20T00:00:00Z", source: "nammakasa" }), // import: never counted
+  row({ created_at: "2026-09-20T00:00:00Z", description: "[test] qa" }), // QA row: never counted
+  row({ created_at: "2026-09-20T00:00:00Z", corporation: null }), // unmapped: not counted (as /performance)
+];
+
+check("countAreas: open/overdue per ward, zone, corporation and city; imports, tests, closed excluded", () => {
+  const c = countAreas(sample, SLA, NOW);
+  assert.deepEqual(c.get("city"), { open: 4, overdue: 2 });
+  assert.deepEqual(c.get("corp:South"), { open: 4, overdue: 2 });
+  assert.deepEqual(c.get("zone:Jayanagar"), { open: 3, overdue: 1 });
+  assert.deepEqual(c.get("zone:Bommanahalli"), { open: 1, overdue: 1 });
+  assert.deepEqual(c.get("ward:south-28"), { open: 3, overdue: 1 });
+});
+
+check("isOverdue agrees with the /performance rule (slaState.resolveOverdue on counted live cases)", () => {
+  for (const r of sample) {
+    const perf = r.source === "cleanloop" && !!r.corporation && !r.description?.startsWith("[test]") &&
+      (r.status === "open" || r.status === "claimed") &&
+      slaState(r, SLA[r.category ?? "waste"], NOW).resolveOverdue;
+    assert.equal(isOverdue(r, SLA, NOW), perf);
+  }
+});
+
+check("officialsSummary: one face per area, sorted by overdue, unnamed zones skipped", () => {
+  const offs = [
+    o({ level: "city", category: "all", name: "City Head", role: "Chief" }),
+    o({ level: "corporation", corporation: "South", category: "all", name: "South Comm", role: "Commissioner" }),
+    o({ level: "zone", zone: "Jayanagar", corporation: "South", category: "all", name: "Jaya ZC", role: "Zonal" }),
+    o({ level: "zone", zone: "Jayanagar", corporation: "South", category: "all", name: "Jaya ZC 2", role: "Zonal" }),
+    o({ level: "zone", zone: "Bommanahalli", corporation: "South", category: "all", name: null, role: "Zonal" }),
+  ];
+  const list = officialsSummary(offs, countAreas(sample, SLA, NOW), { South: ["Bommanahalli", "Jayanagar"] });
+  assert.deepEqual(list.map((x) => x.name), ["City Head", "South Comm", "Jaya ZC"]);
+  for (let i = 1; i < list.length; i++) assert.ok(list[i - 1].overdue >= list[i].overdue);
+  assert.deepEqual(list.find((x) => x.level === "corporation")?.zones, ["Bommanahalli", "Jayanagar"]);
 });
 
 console.log(`\n${passed} checks passed`);

@@ -1,9 +1,9 @@
 /**
  * POST /api/reports — submit a report (spec §3 Flow A)
- * GET  /api/reports — list reports for the map (spec §3 Flow C)
+ * GET  /api/reports — slim pins for the map and list (spec §3 Flow C); see Pin in src/lib/types.ts
  *
  * Importers/callers: called over HTTP by src/components/ReportSheet.tsx (POST) and
- * src/components/MapView.tsx (GET). Not imported by other modules.
+ * src/lib/useReports.ts (GET). Not imported by other modules.
  * Affected API: this route's own HTTP contract, documented below.
  * Data schemas: writes the `reports` table and the `cleanloop` storage bucket.
  * created_at is Postgres timestamptz serialised as ISO-8601 (e.g. "2026-08-20T14:03:11.482Z").
@@ -21,11 +21,12 @@ import {
   uploadPhoto,
   RECURRING_RADIUS_METRES,
   RECURRING_WINDOW_DAYS,
-  PUBLIC_REPORT_COLUMNS,
 } from "@/lib/supabase";
+import type { Pin, Report } from "@/lib/types";
+import { isOverdue, type CaseRow, type SlaCfg } from "@/lib/areas";
 import { getProvider } from "@/lib/ai";
-import { isInBengaluru, nearestWard } from "@/lib/wards";
-import { wardAt } from "@/lib/gbaWards";
+import { isInBengaluru } from "@/lib/wards";
+import { wardAt, wardMeta } from "@/lib/gbaWards";
 import { pickOfficial, type Official } from "@/lib/officials";
 import { notifyNewCase } from "@/lib/notify";
 import { transition } from "@/lib/events";
@@ -50,21 +51,50 @@ const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
 const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp"];
 
 
+/** Columns a map pin needs, plus the few the overdue rule reads. No text, no provenance. */
+const PIN_COLUMNS =
+  "id, lat, lng, status, severity, category, waste_type, road_issue, is_recurring, created_at, photo_before_url, " +
+  "gba_ward_id, zone, corporation, source, description, acknowledged_at, verified_at, closed_at";
+
 export async function GET() {
   try {
     const db = serverClient();
     /*
      * Two queries, not one: the API caps a response at 1000 rows, and ~1.5k live imports sorted
      * by date would push our own cases off the map. Ours are always complete; imports are the
-     * newest 800 of the live subset (src/lib/../scripts/import-nammakasa.ts sets is_public).
+     * newest 800 of the live subset (is_public, set at import time).
      */
-    const [ours, imported] = await Promise.all([
-      db.from("reports").select(PUBLIC_REPORT_COLUMNS).eq("source", "cleanloop").order("created_at", { ascending: false }).limit(1000),
-      db.from("reports").select(PUBLIC_REPORT_COLUMNS).neq("source", "cleanloop").eq("is_public", true).order("created_at", { ascending: false }).limit(800),
+    const [ours, imported, cfgRes] = await Promise.all([
+      db.from("reports").select(PIN_COLUMNS).eq("source", "cleanloop").order("created_at", { ascending: false }).limit(1000),
+      db.from("reports").select(PIN_COLUMNS).neq("source", "cleanloop").eq("is_public", true).order("created_at", { ascending: false }).limit(800),
+      db.from("sla_config").select("*"),
     ]);
     if (ours.error) throw new Error(ours.error.message);
     if (imported.error) throw new Error(imported.error.message);
-    return NextResponse.json({ reports: [...(ours.data ?? []), ...(imported.data ?? [])] });
+    const cfg: SlaCfg = Object.fromEntries((cfgRes.data ?? []).map((c) => [c.category, c]));
+    const now = Date.now();
+    const rows = [...(ours.data ?? []), ...(imported.data ?? [])] as unknown as (CaseRow & Report)[];
+    const pins: Pin[] = rows.map((r) => ({
+      id: r.id,
+      lat: r.lat,
+      lng: r.lng,
+      status: r.status,
+      severity: r.severity,
+      category: r.category ?? "waste",
+      waste_type: r.waste_type,
+      road_issue: r.road_issue ?? null,
+      is_recurring: r.is_recurring,
+      created_at: r.created_at,
+      photo_before_url: r.photo_before_url,
+      ward_name: (r.gba_ward_id && wardMeta(r.gba_ward_id)?.name) || null,
+      zone: r.zone,
+      overdue: isOverdue(r, cfg, now),
+    }));
+    /*
+     * Cached at the edge for a minute. The client keeps its own just-posted and just-resolved
+     * rows on top of this list until the cache catches up (src/lib/useReports.ts).
+     */
+    return NextResponse.json({ reports: pins }, { headers: { "Cache-Control": "s-maxage=60, stale-while-revalidate=300" } });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
@@ -187,8 +217,7 @@ async function createReport(req: Request) {
 
     // Recurring detection is plain geo logic, not ML (spec §4).
     const prior = await findRecurring(db, lat, lng);
-    const ward = nearestWard(lat, lng);
-    // The real GBA ward drives accountability; `ward` (old locality) still labels the UI.
+    // The real GBA ward drives accountability and labels the UI. (Legacy ward_id is no longer written.)
     const gba = wardAt(lat, lng);
 
     // Optional typed/dictated note (no audio is ever stored) and capture provenance.
@@ -212,7 +241,7 @@ async function createReport(req: Request) {
       severity,
       description: classification.one_line_description,
       is_recurring: prior !== null,
-      ward_name: ward?.name ?? null,
+      ward_name: gba?.name ?? null,
       lat,
       lng,
     });
@@ -223,7 +252,6 @@ async function createReport(req: Request) {
         photo_before_url: photoUrl,
         lat,
         lng,
-        ward_id: ward?.id ?? null,
         waste_type: classification.waste_type,
         category,
         road_issue: category === "road" ? roadIssue : null,
@@ -287,7 +315,7 @@ async function createReport(req: Request) {
      *
      * Done after the insert so a failure here cannot lose the citizen's report.
      */
-    let refill: { reopened_report_id: string; ward_id: string | null } | null = null;
+    let refill: { reopened_report_id: string; ward_id: string | null } | null = null; // ward_id = GBA ward
     const previouslyVerified = isTest ? null : await findVerifiedNearby(db, lat, lng);
     if (previouslyVerified) {
       await transition(db, previouslyVerified.id, "reopened", "system", {
@@ -295,7 +323,7 @@ async function createReport(req: Request) {
       });
       refill = {
         reopened_report_id: previouslyVerified.id,
-        ward_id: previouslyVerified.ward_id,
+        ward_id: previouslyVerified.gba_ward_id ?? null,
       };
     }
 

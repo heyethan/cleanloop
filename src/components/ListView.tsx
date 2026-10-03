@@ -5,8 +5,8 @@
  *
  * Importers/callers: src/app/page.tsx.
  * Affected API: exports ListView (default) and the SortMode type.
- * Data schemas: consumes Report[] from src/lib/types.ts; created_at is ISO-8601 and is
- * used to compute days-open.
+ * Data schemas: consumes Pin[] from src/lib/types.ts (GET /api/reports); created_at is ISO-8601
+ * and is used to compute days-open. Rows show the real GBA ward and a red Overdue tag.
  * User instruction, verbatim: "5. The list view should be presented differently, there's
  * a lot of whitespace which isn't good and when we extend the floating island, it just
  * overlaps the list view."
@@ -29,8 +29,7 @@
 
 import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { Report, ReportStatus } from "@/lib/types";
-import { wardName } from "@/lib/wards";
+import type { Pin, ReportStatus } from "@/lib/types";
 import { translate, type Lang } from "@/lib/i18n";
 
 export type SortMode = "severity" | "recent";
@@ -66,10 +65,10 @@ export default function ListView({
   onBackToMap,
   lang,
 }: {
-  reports: Report[];
+  reports: Pin[];
   sort: SortMode;
   onSort: (s: SortMode) => void;
-  onSelect: (r: Report) => void;
+  onSelect: (r: Pin) => void;
   /**
    * The view switch lives in the island, which is collapsed over this surface. Rather
    * than making "go back to the map" a two-tap trip through a HUD, the list carries its
@@ -206,11 +205,21 @@ export default function ListView({
                 onClick={() => onSelect(r)}
                 className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-2 text-left transition-colors duration-300 active:bg-white/[0.08]"
               >
+                {/*
+                  Lazy + async + fixed size: this list holds ~900 rows and stays mounted behind
+                  the map, so eager images were ~10 MB on first load. (Supabase's resize
+                  endpoint is not on this plan — it returns 403 — so the original is used.)
+                */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={r.photo_before_url}
                   alt=""
-                  className="h-14 w-14 shrink-0 rounded-xl object-cover"
+                  width={56}
+                  height={56}
+                  loading="lazy"
+                  decoding="async"
+                  referrerPolicy="no-referrer"
+                  className="h-14 w-14 shrink-0 rounded-xl bg-white/5 object-cover"
                 />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-2">
@@ -221,9 +230,14 @@ export default function ListView({
                         boxShadow: `0 0 8px ${STATUS_COLOUR[r.status]}`,
                       }}
                     />
-                    <span className="truncate text-sm font-medium text-white/90">
-                      {t(`waste_${r.waste_type}`)}
+                    <span className="truncate text-sm font-medium capitalize text-white/90">
+                      {r.category === "road" ? (r.road_issue ?? "road").replace("_", " ") : t(`waste_${r.waste_type ?? "mixed"}`)}
                     </span>
+                    {r.overdue && (
+                      <span className="shrink-0 rounded-full bg-[#ff3b30]/20 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-[#ffb0a5]">
+                        {t("overdue")}
+                      </span>
+                    )}
                     {r.is_recurring && (
                       <span className="shrink-0 rounded-full bg-[#ffb020]/15 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-[#ffd591]">
                         {t("recurring")}
@@ -248,7 +262,7 @@ export default function ListView({
                   <span className="mt-1 flex items-center gap-1.5 text-[11px] text-white/55">
                     <SeverityBar n={r.severity} />
                     <span className="truncate">
-                      {r.ward_id ? `${wardName(r.ward_id)} · ` : ""}
+                      {r.ward_name ? `${r.ward_name} · ` : ""}
                       {t(STATUS_KEY[r.status])}
                     </span>
                   </span>

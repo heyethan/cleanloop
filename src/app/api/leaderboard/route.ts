@@ -1,5 +1,8 @@
 /**
- * GET /api/leaderboard — wards ranked by verified resolution performance (spec §3 Flow C).
+ * GET /api/leaderboard — GBA zones ranked by verified resolution performance (spec §3 Flow C).
+ *
+ * Grouped by zone, not ward: ~120 cases over 369 wards is one or two per ward, which would rank
+ * noise. Rows keep the `ward_id`/`ward_name` field names (now the zone) so the client is unchanged.
  *
  * Importers/callers: called over HTTP by src/components/Leaderboard.tsx.
  * Not imported by other modules.
@@ -13,9 +16,8 @@
  */
 
 import { NextResponse } from "next/server";
-import { serverClient, PUBLIC_REPORT_COLUMNS } from "@/lib/supabase";
-import { WARDS } from "@/lib/wards";
-import type { Report, Resolution } from "@/lib/types";
+import { serverClient } from "@/lib/supabase";
+import type { Resolution } from "@/lib/types";
 
 export interface LeaderboardRow {
   ward_id: string;
@@ -31,13 +33,13 @@ export async function GET() {
     const db = serverClient();
 
     const [reportsRes, resolutionsRes] = await Promise.all([
-      db.from("reports").select(PUBLIC_REPORT_COLUMNS).eq("source", "cleanloop"),
+      db.from("reports").select("id, created_at, zone").eq("source", "cleanloop"),
       db.from("resolutions").select("*").not("verified_at", "is", null),
     ]);
     if (reportsRes.error) throw new Error(reportsRes.error.message);
     if (resolutionsRes.error) throw new Error(resolutionsRes.error.message);
 
-    const reports = (reportsRes.data ?? []) as unknown as Report[];
+    const reports = (reportsRes.data ?? []) as { id: string; created_at: string; zone: string | null }[];
     const resolutions = (resolutionsRes.data ?? []) as Resolution[];
 
     // Earliest verified resolution per report — a report can accrue several attempts
@@ -51,8 +53,8 @@ export async function GET() {
 
     const byWard = new Map<string, { total: number; verified: number; days: number[] }>();
     for (const rep of reports) {
-      if (!rep.ward_id) continue;
-      const acc = byWard.get(rep.ward_id) ?? { total: 0, verified: 0, days: [] };
+      if (!rep.zone) continue;
+      const acc = byWard.get(rep.zone) ?? { total: 0, verified: 0, days: [] };
       acc.total++;
       const verifiedAt = firstVerified.get(rep.id);
       if (verifiedAt) {
@@ -63,15 +65,14 @@ export async function GET() {
         // Guard against clock skew or bad seed data producing negative durations.
         if (days >= 0) acc.days.push(days);
       }
-      byWard.set(rep.ward_id, acc);
+      byWard.set(rep.zone, acc);
     }
 
     const rows: LeaderboardRow[] = [];
     for (const [wardId, acc] of byWard) {
-      const ward = WARDS.find((w) => w.id === wardId);
       rows.push({
         ward_id: wardId,
-        ward_name: ward?.name ?? wardId,
+        ward_name: wardId,
         total_reports: acc.total,
         total_verified_resolutions: acc.verified,
         verified_resolution_rate: acc.total > 0 ? acc.verified / acc.total : null,
@@ -92,7 +93,10 @@ export async function GET() {
       return av - bv;
     });
 
-    return NextResponse.json({ leaderboard: rows });
+    return NextResponse.json(
+      { leaderboard: rows },
+      { headers: { "Cache-Control": "s-maxage=60, stale-while-revalidate=300" } },
+    );
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }

@@ -22,9 +22,9 @@ export async function GET() {
     const db = serverClient();
 
     const [reports, resolutions, facilities] = await Promise.all([
-      // lat/lng/ward_id are needed for the durability check below, which asks whether a
+      // lat/lng/gba_ward_id are needed for the durability check below, which asks whether a
       // verified spot later had waste reported within 50m of it.
-      db.from("reports").select("id,status,created_at,is_seed,lat,lng,ward_id").eq("source", "cleanloop"),
+      db.from("reports").select("id,status,created_at,is_seed,lat,lng,gba_ward_id").eq("source", "cleanloop"),
       // Deliberately NOT filtered to verified_at — the integrity number counts the claims
       // that FAILED, and a failed claim never gets a verified_at.
       db.from("resolutions").select("report_id,verified_at,ai_verification_result"),
@@ -72,7 +72,7 @@ export async function GET() {
      * report count would routinely land on a ward whose hero is empty. Pick by the number
      * that actually has to be non-zero.
      */
-    const wardOf = new Map(rows.map((r) => [r.id as string, r.ward_id as string | null]));
+    const wardOf = new Map(rows.map((r) => [r.id as string, r.gba_ward_id as string | null]));
     const rejectionsByWard = new Map<string, number>();
     for (const r of verifiedRows) {
       if (r.ai_verification_result === "verified_clean") continue;

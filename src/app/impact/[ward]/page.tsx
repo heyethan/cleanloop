@@ -25,7 +25,7 @@ import { notFound } from "next/navigation";
 import ImpactPack from "@/components/ImpactPack";
 import { serverClient, PUBLIC_REPORT_COLUMNS } from "@/lib/supabase";
 import { firstVerifiedAt, refilledAfterVerification } from "@/lib/durability";
-import { wardName } from "@/lib/wards";
+import { wardMeta } from "@/lib/gbaWards";
 import type { Report, Resolution } from "@/lib/types";
 
 /*
@@ -56,8 +56,10 @@ export default async function ImpactPage({
 
   // Reject an unknown slug BEFORE spending a query, so a typo'd URL is a clean 404 rather
   // than an empty-data path that has to be defended everywhere downstream.
-  const name = wardName(ward);
-  if (!name) notFound();
+  // The slug is a GBA ward id ("south-28").
+  const meta = wardMeta(ward);
+  if (!meta) notFound();
+  const name = `${meta.name}, ${meta.zone_name}`;
 
   const feeNum =
     fee && Number.isFinite(Number(fee)) && Number(fee) > 0
@@ -99,8 +101,8 @@ export default async function ImpactPage({
 
   const verifiedAtOf = firstVerifiedAt(resolutions);
   const byId = new Map(reports.map((r) => [r.id, r]));
-  const inWard = (reportId: string) => byId.get(reportId)?.ward_id === ward;
-  const wardReports = reports.filter((r) => r.ward_id === ward);
+  const inWard = (reportId: string) => byId.get(reportId)?.gba_ward_id === ward;
+  const wardReports = reports.filter((r) => r.gba_ward_id === ward);
 
   /*
    * THE HERO. Every claim whose verdict was not verified_clean — the model either still saw

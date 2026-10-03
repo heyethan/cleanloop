@@ -6,8 +6,11 @@
  * Importers/callers: src/app/page.tsx (via next/dynamic, ssr:false).
  * Affected API: exports Map3D (default), MapHandle (imperative ref type),
  * STATUS_COLOUR.
- * Data schemas: consumes Report[] from src/lib/types.ts and the GeoJSON from
- * GET /api/facilities. created_at is ISO-8601 but unused here.
+ * Data schemas: consumes Pin[] and Areas from src/lib/types.ts (GET /api/reports, GET /api/areas),
+ * and the GeoJSON from GET /api/facilities and GET /api/roads. created_at is unused here.
+ *
+ * AREAS: below zoom 12.5 the 10 GBA zones are the hover/tap targets; from 12.5 up, the 369
+ * wards. Click priority is pins, then roads (popup), then areas.
  * User instruction, verbatim: "can we make it 3d location using either (or all)
  * motion.dev/three.js/animation.js/gsap"
  *
@@ -36,13 +39,14 @@ import {
 import {
   Map as MLMap,
   AttributionControl,
+  Marker,
   NavigationControl,
+  Popup,
   setWorkerUrl,
   type GeoJSONSource,
 } from "maplibre-gl";
-import type { Report, ReportStatus } from "@/lib/types";
-import { WARDS } from "@/lib/wards";
-import { buildWardShapes } from "@/lib/wardShapes";
+import type { AreaPick, Areas, Pin, ReportStatus, WardArea, ZoneArea } from "@/lib/types";
+import { initials } from "@/components/Face";
 
 /**
  * REQUIRED, and the reason this map was blank for its entire first life.
@@ -176,7 +180,19 @@ function squareAround(lng: number, lat: number, metres = 18): number[][] {
   ];
 }
 
-function reportsToGeoJSON(reports: Report[]) {
+/** Zones below this zoom, wards at and above it. */
+const WARD_MIN_ZOOM = 12.5;
+/** Below this zoom only severity 4-5 pillars extrude; the ground glow still shows every case. */
+const PILLAR_ALL_ZOOM = 12;
+
+/** prefers-reduced-motion: no orbit, no camera flights — cuts straight to the destination. */
+const reducedMotion = () =>
+  typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/** Phones get a still camera: no settling orbit after a fly-in. */
+const isPhone = () => typeof window !== "undefined" && !window.matchMedia("(min-width: 1024px)").matches;
+
+function reportsToGeoJSON(reports: Pin[]) {
   return {
     type: "FeatureCollection" as const,
     features: reports.map((r) => ({
@@ -191,6 +207,7 @@ function reportsToGeoJSON(reports: Report[]) {
         severity: r.severity,
         waste_type: r.waste_type,
         is_recurring: r.is_recurring,
+        overdue: r.overdue,
         height: r.severity * HEIGHT_PER_SEVERITY,
         colour: STATUS_COLOUR[r.status],
       },
@@ -200,25 +217,36 @@ function reportsToGeoJSON(reports: Report[]) {
 
 export interface MapHandle {
   /** Cinematic fly to a report — used for the peak moment when a pin verifies. */
-  flyToReport: (r: Report, opts?: { zoom?: number }) => void;
-  /** Fly to a locality, settle into a slow orbit, and extrude its pillars on arrival. */
-  flyToWard: (wardId: string) => void;
+  flyToReport: (r: { lat: number; lng: number }, opts?: { zoom?: number }) => void;
+  /** Frame a zone or ward, highlight it, and (3D, desktop) settle into a short orbit. */
+  flyToArea: (a: AreaPick) => void;
+  /**
+   * Frame several zones at once (an official's whole area) and drop a teardrop marker with
+   * their face at the centre. clearMarker() removes it.
+   */
+  showOfficial: (zones: AreaPick[], face: { name: string; photo_url: string | null }) => void;
+  clearMarker: () => void;
   resetView: () => void;
 }
 
 export type MapMode = "2d" | "3d";
 
 interface Props {
-  reports: Report[];
-  onSelect: (r: Report) => void;
+  reports: Pin[];
+  onSelect: (r: Pin) => void;
+  /** GET /api/areas; the area layers fill in when it arrives. */
+  areas: Areas | null;
   showFacilities: boolean;
   /** 2D = flat top-down with circle markers; 3D = tilted with extruded pillars. */
   mode: MapMode;
+  /** The zone or ward under the pointer (or last tapped), so the UI can name it. */
+  onActiveArea?: (a: AreaPick | null) => void;
   /**
-   * The locality currently outlined, so the surrounding UI can name it and say whether
-   * the shape is a surveyed boundary or a report cluster.
+   * A click on an area. Desktop flies there itself; on a phone the parent shows a card with
+   * "Zoom in" instead, so `flyOnClick` is false there.
    */
-  onActiveWard?: (v: { id: string; name: string; kind: "official" | "cluster" } | null) => void;
+  onTapArea?: (a: AreaPick | null) => void;
+  flyOnClick?: boolean;
   /**
    * Fires once MapLibre has its style and first tiles painted.
    *
@@ -246,28 +274,57 @@ function supportsWebGL2(): boolean {
   }
 }
 
+function areaPickOf(kind: "zone" | "ward", p: WardArea | ZoneArea, bbox: [number, number, number, number]): AreaPick {
+  return kind === "ward"
+    ? { kind, id: (p as WardArea).id, name: (p as WardArea).name, name_kn: (p as WardArea).name_kn, zone: p.zone, corporation: p.corporation, open: p.open, overdue: p.overdue, bbox }
+    : { kind, id: p.zone, name: p.zone, name_kn: null, zone: p.zone, corporation: p.corporation, open: p.open, overdue: p.overdue, bbox };
+}
+
+/** Bounding box of a rendered (tile-clipped) ward polygon is wrong; use the source data instead. */
+function wardBbox(areas: Areas | null, id: string): [number, number, number, number] | null {
+  const f = areas?.wards.features.find((w) => w.properties.id === id);
+  if (!f) return null;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const poly of f.geometry.coordinates)
+    for (const [x, y] of poly[0]) {
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    }
+  return [minX, minY, maxX, maxY];
+}
+
 const Map3D = forwardRef<MapHandle, Props>(function Map3D(
-  { reports, onSelect, showFacilities, mode, onActiveWard, onReady },
+  { reports, onSelect, areas, showFacilities, mode, onActiveArea, onTapArea, flyOnClick = true, onReady },
   ref,
 ) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MLMap | null>(null);
   const [ready, setReady] = useState(false);
   const [webglFailed, setWebglFailed] = useState(false);
-  const reportsRef = useRef<Report[]>(reports);
+  const reportsRef = useRef<Pin[]>(reports);
   reportsRef.current = reports;
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
   const modeRef = useRef(mode);
   modeRef.current = mode;
-  const onActiveWardRef = useRef(onActiveWard);
-  onActiveWardRef.current = onActiveWard;
+  const onActiveAreaRef = useRef(onActiveArea);
+  onActiveAreaRef.current = onActiveArea;
+  const onTapAreaRef = useRef(onTapArea);
+  onTapAreaRef.current = onTapArea;
+  const flyOnClickRef = useRef(flyOnClick);
+  flyOnClickRef.current = flyOnClick;
+  const areasRef = useRef(areas);
+  areasRef.current = areas;
+  const marker = useRef<Marker | null>(null);
+  const popup = useRef<Popup | null>(null);
   // Same ref pattern: the map initialises once, so a captured callback would go stale.
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
 
-  /** Feature id currently painted as active, so we can clear exactly one. */
-  const activeFeature = useRef<number | null>(null);
+  /** Area currently painted as active: a zone name or a ward id. */
+  const active = useRef<{ kind: "zone" | "ward"; id: string } | null>(null);
+  /** True after a click, search pick or official pick: hover stops repainting the highlight. */
+  const pinned = useRef(false);
   /** Handles for the two rAF loops, so a new flight (or a touch) can cancel them. */
   const orbitRaf = useRef<number | null>(null);
   const growRaf = useRef<number | null>(null);
@@ -279,30 +336,23 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
     }
   }, []);
 
-  /** Paint one locality as active and clear whatever was active before. */
-  const setActiveWard = useCallback((featureId: number | null) => {
+  /**
+   * Paint one area as active and clear whatever was active before. Wards use feature state
+   * (promoteId "id"); a zone is many ward polygons, so it is a paint expression on its name.
+   */
+  const setActiveArea = useCallback((pick: AreaPick | null, notify = true) => {
     const m = map.current;
-    if (!m || !m.getSource("ward-shapes")) return;
-    if (activeFeature.current === featureId) return;
-
-    if (activeFeature.current !== null) {
-      m.setFeatureState(
-        { source: "ward-shapes", id: activeFeature.current },
-        { active: false },
-      );
-    }
-    activeFeature.current = featureId;
-
-    if (featureId !== null) {
-      m.setFeatureState({ source: "ward-shapes", id: featureId }, { active: true });
-      const ward = WARDS[featureId];
-      const kind =
-        (m.querySourceFeatures("ward-shapes").find((f) => f.id === featureId)?.properties
-          ?.kind as "official" | "cluster" | undefined) ?? "cluster";
-      onActiveWardRef.current?.(ward ? { id: ward.id, name: ward.name, kind } : null);
-    } else {
-      onActiveWardRef.current?.(null);
-    }
+    if (!m || !m.getSource("wards")) return;
+    const prev = active.current;
+    if (prev?.kind === pick?.kind && prev?.id === pick?.id) return;
+    if (prev?.kind === "ward") m.setFeatureState({ source: "wards", id: prev.id }, { active: false });
+    active.current = pick && { kind: pick.kind, id: pick.id };
+    if (pick?.kind === "ward") m.setFeatureState({ source: "wards", id: pick.id }, { active: true });
+    const zone = pick?.kind === "zone" ? pick.id : "";
+    m.setPaintProperty("zone-fill", "fill-opacity", ["case", ["==", ["get", "zone"], zone], 0.14, 0]);
+    m.setPaintProperty("zone-line", "line-opacity", ["case", ["==", ["get", "zone"], zone], 0.95, 0.55]);
+    m.setPaintProperty("zone-line", "line-width", ["case", ["==", ["get", "zone"], zone], 2.4, 1.2]);
+    if (notify) onActiveAreaRef.current?.(pick);
   }, []);
 
   /**
@@ -340,50 +390,53 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
     growRaf.current = requestAnimationFrame(tick);
   }, []);
 
-  useImperativeHandle(ref, () => ({
-    flyToReport(r, opts) {
-      map.current?.easeTo({
-        center: [r.lng, r.lat],
-        zoom: opts?.zoom ?? 16.5,
-        // A tilted camera in 2D mode would defeat the point of choosing 2D.
-        pitch: modeRef.current === "2d" ? 0 : 62,
-        bearing: modeRef.current === "2d" ? 0 : -22,
-        duration: 1600,
-        // Heavy, weighted deceleration — matches the motion language of the sheets.
-        easing: (t) => 1 - Math.pow(1 - t, 4),
-      });
-    },
-    flyToWard(wardId) {
+  /** Frame a bbox; 3D desktop flights extrude the pillars and settle into a short orbit. */
+  const frame = useCallback(
+    (bbox: [number, number, number, number], maxZoom: number) => {
       const m = map.current;
       if (!m) return;
-      const index = WARDS.findIndex((w) => w.id === wardId);
-      const ward = WARDS[index];
-      if (!ward) return;
-
       stopOrbit();
-      setActiveWard(index);
-
       const is3d = modeRef.current === "3d";
-      const startBearing = m.getBearing();
-
-      m.easeTo({
-        center: [ward.lng, ward.lat],
-        zoom: WARD_ZOOM,
-        pitch: is3d ? WARD_PITCH : 0,
-        bearing: startBearing,
-        duration: WARD_FLY_MS,
+      const still = reducedMotion();
+      /*
+       * Fit the area FLAT, then zoom in a step when pitched. fitBounds with pitch frames the
+       * tilted frustum, which over-reveals the far side — an area landed small in the middle of
+       * a wide view. Solving at pitch 0 and adding a pitch boost fills the viewport with the
+       * area; maxZoom stops a tiny ward from landing at street level.
+       */
+      const pitch = is3d ? (isPhone() ? 45 : WARD_PITCH) : 0;
+      const cam = m.cameraForBounds(
+        [
+          [bbox[0], bbox[1]],
+          [bbox[2], bbox[3]],
+        ],
+        {
+          padding: isPhone()
+            ? { top: 140, bottom: 260, left: 20, right: 20 }
+            : { top: 60, bottom: 60, left: 470, right: 100 },
+          bearing: m.getBearing(),
+        },
+      );
+      const zoom = Math.min(maxZoom, (cam?.zoom ?? m.getZoom()) + (pitch ? 0.45 : 0.15));
+      m.flyTo({
+        center: cam?.center ?? m.getCenter(),
+        zoom,
+        pitch,
+        bearing: m.getBearing(),
+        duration: still ? 0 : WARD_FLY_MS,
         easing: (t) => 1 - Math.pow(1 - t, 4),
+        essential: true,
       });
-
       // Pillars extrude as the camera lands, so the two motions read as one arrival.
-      if (is3d) window.setTimeout(growPillars, WARD_FLY_MS * 0.55);
+      if (is3d && !still) window.setTimeout(growPillars, WARD_FLY_MS * 0.55);
 
       /*
        * Then a slow settling orbit. Driven by rAF and easeTo-free so it can be abandoned
        * on the exact frame the user touches the map — an animation the user cannot grab
        * and stop is the thing Apple's fluid-interface guidance warns against.
+       * Skipped on phones and under reduced motion.
        */
-      if (!is3d) return;
+      if (!is3d || still || isPhone()) return;
       window.setTimeout(() => {
         const begin = performance.now();
         const from = m.getBearing();
@@ -396,16 +449,76 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
         orbitRaf.current = requestAnimationFrame(tick);
       }, WARD_FLY_MS);
     },
+    [stopOrbit, growPillars],
+  );
+
+  useImperativeHandle(ref, () => ({
+    flyToReport(r, opts) {
+      map.current?.easeTo({
+        center: [r.lng, r.lat],
+        zoom: opts?.zoom ?? 16.5,
+        // A tilted camera in 2D mode would defeat the point of choosing 2D.
+        pitch: modeRef.current === "2d" ? 0 : isPhone() ? 45 : 62,
+        bearing: modeRef.current === "2d" ? 0 : -22,
+        duration: reducedMotion() ? 0 : 1600,
+        // Heavy, weighted deceleration — matches the motion language of the sheets.
+        easing: (t) => 1 - Math.pow(1 - t, 4),
+      });
+    },
+    flyToArea(a) {
+      pinned.current = true;
+      setActiveArea(a);
+      frame(a.bbox, a.kind === "ward" ? 16 : 14);
+    },
+    showOfficial(zones, face) {
+      const m = map.current;
+      if (!m || zones.length === 0) return;
+      const bbox: [number, number, number, number] = [
+        Math.min(...zones.map((z) => z.bbox[0])),
+        Math.min(...zones.map((z) => z.bbox[1])),
+        Math.max(...zones.map((z) => z.bbox[2])),
+        Math.max(...zones.map((z) => z.bbox[3])),
+      ];
+      pinned.current = zones.length === 1;
+      setActiveArea(zones.length === 1 ? zones[0] : null);
+      frame(bbox, WARD_ZOOM - 1);
+
+      // Teardrop pin with their face, at the centre of their area.
+      marker.current?.remove();
+      const el = document.createElement("div");
+      el.className = "official-pin";
+      el.setAttribute("aria-label", face.name);
+      const disc = document.createElement("div");
+      disc.className = "official-pin__face";
+      disc.textContent = initials(face.name);
+      if (face.photo_url) {
+        const img = document.createElement("img");
+        img.src = face.photo_url;
+        img.alt = "";
+        img.referrerPolicy = "no-referrer";
+        img.onerror = () => img.remove();
+        disc.appendChild(img);
+      }
+      el.appendChild(disc);
+      marker.current = new Marker({ element: el, anchor: "bottom" })
+        .setLngLat(shapeCentre(areasRef.current?.wards.features ?? [], zones.map((z) => z.zone), bbox))
+        .addTo(m);
+    },
+    clearMarker() {
+      marker.current?.remove();
+      marker.current = null;
+    },
     resetView() {
       stopOrbit();
-      setActiveWard(null);
+      pinned.current = false;
+      setActiveArea(null);
       const m = map.current;
       if (!m) return;
       m.fitBounds(BENGALURU_BOUNDS, {
         padding: { top: 200, bottom: 90, left: 24, right: 24 },
         pitch: OVERVIEW_PITCH,
         bearing: -18,
-        duration: 1400,
+        duration: reducedMotion() ? 0 : 1400,
       });
       // Same spill trim as the opening camera, applied once the flight has landed.
       m.once("moveend", () => trimSpill(m));
@@ -490,6 +603,11 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
             // the report pillars stay the brightest thing on screen.
             m.setPaintProperty(layer.id, "fill-extrusion-color", "#161c26");
             m.setPaintProperty(layer.id, "fill-extrusion-opacity", 0.9);
+          } else if (layer.type === "fill" && /building/.test(layer.id)) {
+            // The flat building layer (below the 3D one's minzoom) is cream too: at zoom
+            // ~13-14 it painted the city as white blocks. Same dark mass as the extrusions.
+            m.setPaintProperty(layer.id, "fill-color", "#161c26");
+            m.setPaintProperty(layer.id, "fill-outline-color", "#1c2430");
           } else if (layer.type === "fill" && /water/.test(layer.id)) {
             m.setPaintProperty(layer.id, "fill-color", "#0d1622");
           } else if (
@@ -512,74 +630,52 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
       }
 
       /*
-       * --- locality outlines -------------------------------------------------
+       * --- GBA zones and wards ------------------------------------------------
        * Added FIRST so every data layer draws above them: this is context, not content.
-       *
-       * Two visual kinds, and the distinction is a matter of honesty rather than taste:
-       *   official -> a real surveyed OSM boundary. Solid line.
-       *   cluster  -> a convex hull of that locality's own reports, because OSM has no
-       *               boundary for it at all. Dashed, so it can never be mistaken for a
-       *               surveyed one. See src/lib/wardShapes.ts for why.
+       * One polygon source (the 369 wards, promoteId "id" for feature state). Zones are
+       * painted from the same polygons by zone name, plus their own precomputed outlines
+       * (scripts/build-zones.ts). Data arrives from GET /api/areas in an effect below.
        */
-      m.addSource("ward-shapes", {
-        type: "geojson",
-        data: buildWardShapes(reportsRef.current),
-      });
+      const empty = { type: "FeatureCollection" as const, features: [] };
+      m.addSource("wards", { type: "geojson", data: areasRef.current?.wards ?? empty, promoteId: "id" });
+      m.addSource("zones", { type: "geojson", data: areasRef.current?.zones ?? empty });
 
+      m.addLayer({
+        id: "zone-fill",
+        type: "fill",
+        source: "wards",
+        maxzoom: WARD_MIN_ZOOM,
+        // Only the active zone tints; the rest stay invisible (but still hit-testable).
+        paint: { "fill-color": "#4da3ff", "fill-opacity": 0, "fill-opacity-transition": { duration: 280, delay: 0 } },
+      });
+      m.addLayer({
+        id: "zone-line",
+        type: "line",
+        source: "zones",
+        layout: { "line-join": "round" },
+        paint: { "line-color": "#6cb6ff", "line-width": 1.2, "line-opacity": 0.55 },
+      });
       m.addLayer({
         id: "ward-fill",
         type: "fill",
-        source: "ward-shapes",
+        source: "wards",
+        minzoom: WARD_MIN_ZOOM,
         paint: {
-          "fill-color": [
-            "case",
-            ["==", ["get", "kind"], "official"],
-            "#4da3ff",
-            "#7d8ea3",
-          ],
-          // Only the active locality tints; the rest stay invisible so the map is calm.
-          "fill-opacity": [
-            "case",
-            ["boolean", ["feature-state", "active"], false],
-            0.12,
-            0,
-          ],
+          "fill-color": "#4da3ff",
+          "fill-opacity": ["case", ["boolean", ["feature-state", "active"], false], 0.14, 0],
           "fill-opacity-transition": { duration: 280, delay: 0 },
         },
       });
-
       m.addLayer({
         id: "ward-line",
         type: "line",
-        source: "ward-shapes",
+        source: "wards",
+        minzoom: WARD_MIN_ZOOM,
         layout: { "line-join": "round" },
         paint: {
-          "line-color": [
-            "case",
-            ["==", ["get", "kind"], "official"],
-            "#6cb6ff",
-            "#93a4b8",
-          ],
-          "line-width": [
-            "case",
-            ["boolean", ["feature-state", "active"], false],
-            2,
-            0,
-          ],
-          "line-opacity": [
-            "case",
-            ["boolean", ["feature-state", "active"], false],
-            0.9,
-            0,
-          ],
-          // Dashed == derived from our reports, solid == surveyed boundary.
-          "line-dasharray": [
-            "case",
-            ["==", ["get", "kind"], "official"],
-            ["literal", [1, 0]],
-            ["literal", [2, 1.6]],
-          ],
-          "line-opacity-transition": { duration: 280, delay: 0 },
+          "line-color": ["case", ["boolean", ["feature-state", "active"], false], "#6cb6ff", "#93a4b8"],
+          "line-width": ["case", ["boolean", ["feature-state", "active"], false], 2.2, 0.6],
+          "line-opacity": ["case", ["boolean", ["feature-state", "active"], false], 0.95, 0.3],
         },
       });
 
@@ -684,48 +780,134 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
         },
       });
 
-      for (const layerId of ["report-pillars", "report-dots"]) {
-      m.on("click", layerId, (e) => {
-        const id = e.features?.[0]?.properties?.id as string | undefined;
-        if (!id) return;
-        const found = reportsRef.current.find((r) => r.id === id);
-        if (found) onSelectRef.current(found);
+      /*
+       * Overdue: a red ring at every zoom, and an "OVERDUE" tag once you are close enough to
+       * read it. Imports never carry the flag (src/lib/areas.ts).
+       */
+      m.addLayer({
+        id: "report-overdue-ring",
+        type: "circle",
+        source: "reports",
+        filter: ["==", ["get", "overdue"], true],
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 4, 16, 14],
+          "circle-color": "rgba(0,0,0,0)",
+          "circle-stroke-width": 1.5,
+          "circle-stroke-color": "#ff3b30",
+          "circle-stroke-opacity": 0.85,
+        },
       });
-      m.on("mouseenter", layerId, () => {
-        m.getCanvas().style.cursor = "pointer";
+      m.addLayer({
+        id: "report-overdue-tag",
+        type: "symbol",
+        source: "reports",
+        minzoom: 14,
+        filter: ["==", ["get", "overdue"], true],
+        layout: {
+          "text-field": "OVERDUE",
+          "text-font": ["Noto Sans Bold"],
+          "text-size": 10,
+          "text-letter-spacing": 0.08,
+          "text-offset": [0, 1.6],
+          "text-allow-overlap": false,
+        },
+        paint: { "text-color": "#ffb0a5", "text-halo-color": "#3a0b08", "text-halo-width": 1.4 },
       });
-      m.on("mouseleave", layerId, () => {
-        m.getCanvas().style.cursor = "";
-      });
+
+      // Fewer extrusions at city scale: only the worst cases stand up until you zoom in.
+      const syncPillars = () =>
+        m.setFilter("report-pillars", m.getZoom() < PILLAR_ALL_ZOOM ? [">=", ["get", "severity"], 4] : null);
+      syncPillars();
+      m.on("zoomend", syncPillars);
+
+      for (const layerId of ["report-pillars", "report-dots", "roads-quality"]) {
+        m.on("mouseenter", layerId, () => {
+          m.getCanvas().style.cursor = "pointer";
+        });
+        m.on("mouseleave", layerId, () => {
+          m.getCanvas().style.cursor = "";
+        });
       }
 
+      /** The zone or ward at a point, depending on the zoom level. */
+      const areaAt = (point: { x: number; y: number }): AreaPick | null => {
+        const wardMode = m.getZoom() >= WARD_MIN_ZOOM;
+        const f = m.queryRenderedFeatures([point.x, point.y], { layers: [wardMode ? "ward-fill" : "zone-fill"] })[0];
+        if (!f) return null;
+        const p = f.properties as WardArea;
+        if (wardMode) return areaPickOf("ward", p, wardBbox(areasRef.current, p.id) ?? [0, 0, 0, 0]);
+        const z = areasRef.current?.zones.features.find((x) => x.properties.zone === p.zone)?.properties;
+        return z ? areaPickOf("zone", z, z.bbox) : null;
+      };
+
       /*
-       * Locality highlight. Desktop gets true hover; touch has no hover at all, so on a
-       * phone the same outline is driven by a tap on the map background (and by the
-       * Cmd-K locality search, which calls flyToWard).
+       * Hover (desktop only — touch has no hover): name the area under the pointer. The
+       * highlight follows hover until something is clicked; a click pins it.
        */
-      m.on("mousemove", "ward-fill", (e) => {
-        const id = e.features?.[0]?.id;
-        if (typeof id === "number") setActiveWard(id);
+      m.on("mousemove", (e) => {
+        if (pinned.current) return;
+        setActiveArea(areaAt(e.point));
       });
-      m.on("mouseleave", "ward-fill", () => setActiveWard(null));
+      m.getCanvas().addEventListener("mouseleave", () => {
+        if (!pinned.current) setActiveArea(null);
+      });
 
+      /*
+       * One click handler, in priority order: a report pin, then a road (popup), then an
+       * area. Separate per-layer handlers used to fire together, so a tap on a pin also
+       * selected the area underneath it.
+       */
       m.on("click", (e) => {
-        // A tap that landed on a report is handled by the pillar/dot handlers above.
-        const onReport = m.queryRenderedFeatures(e.point, {
-          layers: ["report-pillars", "report-dots"].filter((l) => m.getLayer(l)),
-        });
-        if (onReport.length) return;
+        const pinLayers = ["report-pillars", "report-dots"].filter(
+          (l) => m.getLayer(l) && m.getLayoutProperty(l, "visibility") !== "none",
+        );
+        const pin = m.queryRenderedFeatures(e.point, { layers: pinLayers })[0];
+        if (pin) {
+          const found = reportsRef.current.find((r) => r.id === pin.properties?.id);
+          if (found) onSelectRef.current(found);
+          return;
+        }
 
-        const hit = m.queryRenderedFeatures(e.point, { layers: ["ward-fill"] });
-        const id = hit[0]?.id;
-        setActiveWard(typeof id === "number" ? id : null);
+        const road = m.queryRenderedFeatures(e.point, { layers: ["roads-quality"] })[0];
+        if (road) {
+          const p = road.properties as { name?: string; quality: string; reports: number; open: number };
+          const quality = p.quality === "poor" ? "Poor" : p.quality === "good" ? "Good" : "Unrated";
+          const box = document.createElement("div");
+          box.className = "road-pop";
+          const title = document.createElement("strong");
+          title.textContent = p.name || "Unnamed road";
+          const line = document.createElement("div");
+          line.textContent = `Quality: ${quality} · ${p.reports} report${p.reports === 1 ? "" : "s"}${p.open ? ` (${p.open} open)` : ""}`;
+          box.append(title, line);
+          popup.current?.remove();
+          popup.current = new Popup({ closeButton: true, maxWidth: "240px", className: "road-popup" })
+            .setLngLat(e.lngLat)
+            .setDOMContent(box)
+            .addTo(m);
+          return;
+        }
+
+        const area = areaAt(e.point);
+        pinned.current = area !== null;
+        setActiveArea(area);
+        onTapAreaRef.current?.(area);
+        if (area && flyOnClickRef.current) {
+          frame(area.bbox, area.kind === "ward" ? 16 : 14);
+        }
       });
+
+      // Exploring again (pan or zoom by hand) hands the highlight back to hover.
+      for (const ev of ["dragstart", "wheel"] as const) m.on(ev, () => (pinned.current = false));
 
       // Any hand on the map wins over the orbit, immediately.
       for (const ev of ["dragstart", "touchstart", "wheel", "mousedown"] as const) {
         m.on(ev, stopOrbit);
       }
+      // The zoom/compass buttons live outside the canvas, so mousedown above never sees them;
+      // a user-started move carries originalEvent, the orbit's own setBearing does not.
+      m.on("movestart", (e) => {
+        if ((e as { originalEvent?: Event }).originalEvent) stopOrbit();
+      });
 
       setReady(true);
       onReadyRef.current?.();
@@ -746,25 +928,16 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
     src?.setData(reportsToGeoJSON(reports) as never);
   }, [reports, ready]);
 
-  /*
-   * --- keep locality shapes in sync -----------------------------------------
-   * The hull-based shapes are DERIVED from the visible reports, so they have to be
-   * rebuilt when the filters change. setData resets feature state, so the active
-   * highlight is re-applied afterwards rather than silently disappearing.
-   */
+  // --- areas arrive after the map does ------------------------------------
   useEffect(() => {
-    if (!ready || !map.current) return;
+    if (!ready || !map.current || !areas) return;
     const m = map.current;
-    const src = m.getSource("ward-shapes") as GeoJSONSource | undefined;
-    if (!src) return;
-    src.setData(buildWardShapes(reports) as never);
-    if (activeFeature.current !== null) {
-      m.setFeatureState(
-        { source: "ward-shapes", id: activeFeature.current },
-        { active: true },
-      );
-    }
-  }, [reports, ready]);
+    (m.getSource("wards") as GeoJSONSource | undefined)?.setData(areas.wards as never);
+    (m.getSource("zones") as GeoJSONSource | undefined)?.setData(areas.zones as never);
+    // setData resets feature state; re-apply the active ward rather than losing it.
+    const a = active.current;
+    if (a?.kind === "ward") m.setFeatureState({ source: "wards", id: a.id }, { active: true });
+  }, [areas, ready]);
 
   /** Stop both animation loops if the component goes away mid-flight. */
   useEffect(
@@ -866,5 +1039,50 @@ const Map3D = forwardRef<MapHandle, Props>(function Map3D(
 
   return <div ref={container} className="h-full w-full" />;
 });
+
+/**
+ * Where an official's pin goes: the area-weighted centroid of their wards, so it sits in the
+ * middle of the outlined shape rather than the middle of its bounding box (an L-shaped zone's
+ * box centre can fall outside it). If the centroid still lands outside every ward (a crescent),
+ * snap to the nearest ward's own centroid. Falls back to the bbox centre with no geometry.
+ */
+function shapeCentre(
+  wards: { properties: { zone: string }; geometry: { coordinates: number[][][][] } }[],
+  zones: string[],
+  bbox: [number, number, number, number],
+): [number, number] {
+  const want = new Set(zones);
+  let A = 0, X = 0, Y = 0;
+  const cents: { x: number; y: number; ring: number[][] }[] = [];
+  for (const w of wards) {
+    if (!want.has(w.properties.zone)) continue;
+    for (const poly of w.geometry.coordinates) {
+      const r = poly[0];
+      let a = 0, cx = 0, cy = 0;
+      for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+        const f = r[j][0] * r[i][1] - r[i][0] * r[j][1];
+        a += f;
+        cx += (r[j][0] + r[i][0]) * f;
+        cy += (r[j][1] + r[i][1]) * f;
+      }
+      if (Math.abs(a) < 1e-12) continue;
+      cents.push({ x: cx / (3 * a), y: cy / (3 * a), ring: r });
+      A += a / 2;
+      X += cx / 6;
+      Y += cy / 6;
+    }
+  }
+  if (!cents.length || Math.abs(A) < 1e-12) return [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2];
+  const x = X / A, y = Y / A;
+  const inside = (r: number[][]) => {
+    let c = false;
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++)
+      if (r[i][1] > y !== r[j][1] > y && x < ((r[j][0] - r[i][0]) * (y - r[i][1])) / (r[j][1] - r[i][1]) + r[i][0]) c = !c;
+    return c;
+  };
+  if (cents.some((c) => inside(c.ring))) return [x, y];
+  const near = cents.reduce((b, c) => ((c.x - x) ** 2 + (c.y - y) ** 2 < (b.x - x) ** 2 + (b.y - y) ** 2 ? c : b));
+  return [near.x, near.y];
+}
 
 export default Map3D;

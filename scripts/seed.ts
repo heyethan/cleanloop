@@ -30,7 +30,53 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { WARDS, nearestWard } from "../src/lib/wards.ts";
+import { haversineMetres } from "../src/lib/wards.ts";
+
+/*
+ * Locality centroids used only to scatter synthetic demo points. Moved here from
+ * src/lib/wards.ts when the app switched to the real GBA wards.
+ */
+interface Ward {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+}
+
+/** Source: OpenStreetMap Nominatim, 2026-08-20. */
+const WARDS: Ward[] = [
+  { id: "koramangala", name: "Koramangala", lat: 12.9357366, lng: 77.624081 },
+  { id: "indiranagar", name: "Indiranagar", lat: 12.9732913, lng: 77.6404672 },
+  { id: "whitefield", name: "Whitefield", lat: 12.9957428, lng: 77.7579489 },
+  { id: "jayanagar", name: "Jayanagar", lat: 12.9292731, lng: 77.5824229 },
+  { id: "hsr-layout", name: "HSR Layout", lat: 12.9116225, lng: 77.6388622 },
+  { id: "marathahalli", name: "Marathahalli", lat: 12.9552572, lng: 77.6984163 },
+  { id: "malleshwaram", name: "Malleshwaram", lat: 13.0027353, lng: 77.5703253 },
+  { id: "basavanagudi", name: "Basavanagudi", lat: 12.9417261, lng: 77.5755021 },
+  { id: "bellandur", name: "Bellandur", lat: 12.9320495, lng: 77.6842915 },
+  { id: "yelahanka", name: "Yelahanka", lat: 13.1006982, lng: 77.5963454 },
+  { id: "rajajinagar", name: "Rajajinagar", lat: 13.0005232, lng: 77.5496166 },
+  { id: "btm-layout", name: "BTM Layout", lat: 12.9140008, lng: 77.6102821 },
+];
+
+/**
+ * Nearest locality centroid, or null if the point is absurdly far from all of them
+ * (i.e. not in Bengaluru) — better to store no ward than a wrong one.
+ */
+function nearestWard(lat: number, lng: number, maxMetres = 15_000): Ward | null {
+  let best: Ward | null = null;
+  let bestD = Infinity;
+  for (const w of WARDS) {
+    const d = haversineMetres(lat, lng, w.lat, w.lng);
+    if (d < bestD) {
+      bestD = d;
+      best = w;
+    }
+  }
+  return bestD <= maxMetres ? best : null;
+}
+
+
 
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;

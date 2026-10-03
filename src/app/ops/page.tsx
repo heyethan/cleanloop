@@ -94,9 +94,6 @@ export default async function OpsPage({ searchParams }: { searchParams: Promise<
                   <span className="rounded-full bg-[#ffb020]/20 px-2 py-0.5 text-[10px] text-[#ffd591]">Keeps refilling</span>
                 )}
                 {c.is_seed && <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/55">Demo</span>}
-                {c.source === "nammakasa" && (
-                  <span className="rounded-full bg-[#3f8cff]/20 px-2 py-0.5 text-[10px] text-[#a9c8ff]">via NammaKasa</span>
-                )}
               </div>
               <div className="mt-0.5 truncate text-xs text-white/55">
                 {c.zone} · {c.corporation} · open {Math.floor((now - Date.parse(c.created_at)) / 86_400_000)}d

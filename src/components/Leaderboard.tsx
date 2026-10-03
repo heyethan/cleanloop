@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * Ward leaderboard — spec §3 Flow C / §12.
+ * Zone leaderboard — spec §3 Flow C / §12. Rows are the 10 GBA zones (ward_id/ward_name carry
+ * the zone name; see src/app/api/leaderboard/route.ts).
  *
  * Importers/callers: src/app/page.tsx.
  * Affected API: exports Leaderboard (default); calls GET /api/leaderboard.
@@ -178,7 +179,7 @@ export default function Leaderboard({
         imply they are — so it survives in six words instead of twenty.
       */}
       <p className="mt-4 text-[10px] leading-relaxed text-white/60">
-        Locality areas are approximate.
+        GBA zones, Dec 2025 ward delimitation.
       </p>
     </Sheet>
   );

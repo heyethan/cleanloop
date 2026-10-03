@@ -85,6 +85,30 @@ body {
   outline: 2px solid #6cb6ff;
   outline-offset: 2px;
 }
+/*
+ * Form fields count a mouse click as :focus-visible, so the ring above showed on every click.
+ * They get a quiet border brighten instead — still visible to keyboard users.
+ */
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.45) !important;
+}
+/* One chevron, same inset in every box (the native arrow sat flush against the edge). */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 2.25rem !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.7)' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.85rem center;
+  background-size: 12px;
+}
+select option {
+  background: #0d1117;
+  color: #fff;
+}
 .maplibregl-ctrl-group {
   background: rgba(10, 13, 18, 0.7) !important;
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -132,4 +156,82 @@ body {
   *, *::before, *::after {
     transition-property: opacity, color, background-color, border-color, box-shadow !important;
   }
+}
+
+/*
+ * Importers/callers: Map3D.tsx (official pin, road popup), OfficialsIsland.tsx (strip).
+ * An official's teardrop pin: their face in a disc, a point at the bottom. Initials sit under
+ * the photo so a blocked hotlink still shows something.
+ */
+.official-pin {
+  width: 52px;
+  height: 64px;
+  display: flex;
+  justify-content: center;
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.6));
+}
+.official-pin::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  background: #fff;
+  transform: translate(-50%, -2px) rotate(45deg);
+  border-radius: 2px;
+}
+.official-pin__face {
+  position: relative;
+  z-index: 1;
+  width: 52px;
+  height: 52px;
+  border-radius: 9999px;
+  border: 3px solid #fff;
+  background: #1b2330;
+  color: #fff;
+  font: 600 15px/46px var(--font-geist-sans), system-ui, sans-serif;
+  text-align: center;
+  overflow: hidden;
+}
+.official-pin__face img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.road-popup .maplibregl-popup-content {
+  background: #0b0f15;
+  color: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 10px 30px 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.road-popup .maplibregl-popup-content strong { display: block; color: #fff; font-size: 13px; }
+.road-popup .maplibregl-popup-tip { border-top-color: #0b0f15 !important; border-bottom-color: #0b0f15 !important; }
+.road-popup .maplibregl-popup-close-button { width: 28px; height: 28px; color: rgba(255, 255, 255, 0.6); }
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+/*
+ * Phones (below the 1024px desktop layout): cheaper effects, thumb-zone layout.
+ *  - backdrop-filter is the most expensive thing on a phone GPU over a live WebGL map; glass
+ *    becomes solid translucent instead. The sheet scrim (.veil-in) keeps its plain dim.
+ *  - The map's zoom/compass buttons would sit under the thumb-zone stack; pinch covers them.
+ *  - Inputs at 16px so iOS Safari does not zoom the page on focus.
+ */
+@media (max-width: 1023px) {
+  [class*="backdrop-blur"] {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  [class*="backdrop-blur"]:not(.veil-in) {
+    background-color: rgba(11, 15, 21, 0.92) !important;
+  }
+  .maplibregl-ctrl-group { display: none; }
+  .maplibregl-ctrl-bottom-right { margin-bottom: 300px; }
+  input, select, textarea { font-size: 16px !important; }
 }

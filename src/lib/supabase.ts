@@ -4,7 +4,7 @@
  * Importers/callers: src/app/api/reports/route.ts, src/app/api/reports/[id]/resolve/route.ts,
  * src/app/api/leaderboard/route.ts, scripts/seed.ts (server); src/components/* (browser).
  * Affected API: exports serverClient(), browserClient(), findRecurring(), uploadPhoto(),
- * PHOTO_BUCKET, RECURRING_RADIUS_METRES, RECURRING_WINDOW_DAYS.
+ * PHOTO_BUCKET, RECURRING_RADIUS_METRES, RECURRING_WINDOW_DAYS, selectAll(), loadAreaCounts().
  * Data schemas: reads/writes the `reports` and `resolutions` tables and the `cleanloop`
  * storage bucket. Timestamps are Postgres timestamptz, serialised as ISO-8601 strings
  * (e.g. "2026-08-20T14:03:11.482Z"). See supabase/schema.sql.
@@ -17,6 +17,8 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { haversineMetres } from "./wards";
 import type { Report } from "./types";
+import { countAreas, type CaseRow, type SlaCfg } from "./areas";
+import type { Official } from "./officials";
 
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -50,6 +52,28 @@ export async function selectAll<T>(
     out.push(...(data ?? []));
     if (!data || data.length < 1000) return out;
   }
+}
+
+/**
+ * Open/overdue counts per area (src/lib/areas.ts) plus the officials and SLA config behind them.
+ * Used by GET /api/areas and GET /api/officials-summary. Paged, so no 1000-row cap.
+ */
+export async function loadAreaCounts(db: SupabaseClient) {
+  const [rows, { data: cfgRows }, { data: officials }] = await Promise.all([
+    selectAll<CaseRow>((from, to) =>
+      db
+        .from("reports")
+        .select("created_at, acknowledged_at, verified_at, closed_at, status, category, source, description, gba_ward_id, zone, corporation")
+        .eq("source", "cleanloop")
+        .in("status", ["open", "claimed"])
+        .order("id")
+        .range(from, to),
+    ),
+    db.from("sla_config").select("*"),
+    db.from("officials").select("*").order("id"),
+  ]);
+  const cfg: SlaCfg = Object.fromEntries((cfgRows ?? []).map((c) => [c.category, c]));
+  return { counts: countAreas(rows, cfg), cfg, officials: (officials ?? []) as Official[] };
 }
 
 /** Server-side, service role. Never import this into a client component. */

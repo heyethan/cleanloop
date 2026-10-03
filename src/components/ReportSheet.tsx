@@ -23,7 +23,7 @@ import DictateButton from "./DictateButton";
 import { getSessionId } from "@/lib/session";
 import Sheet from "@/components/Sheet";
 import { translate, type Lang } from "@/lib/i18n";
-import { isInBengaluru, nearestWard } from "@/lib/wards";
+import { isInBengaluru } from "@/lib/wards";
 import { downscalePhoto, readJson } from "@/lib/photo";
 import type { Report } from "@/lib/types";
 import { ThinkingOrb } from "thinking-orbs";
@@ -48,7 +48,8 @@ export default function ReportSheet({
 }: {
   lang: Lang;
   onClose: () => void;
-  onReported: (r: Report) => void;
+  /** The created row, plus its GBA ward when the point is inside one. */
+  onReported: (r: Report, ward: { name: string; zone: string } | null) => void;
 }) {
   const t = (k: string, v?: Record<string, string | number>) => translate(lang, k, v);
   const [stage, setStage] = useState<Stage>("idle");
@@ -150,6 +151,7 @@ export default function ReportSheet({
         ai_is_live: boolean;
         tracking_code?: string;
         recurring: unknown;
+        ward: { name: string; zone: string } | null;
       }>(res);
 
       setResult(json.report);
@@ -165,7 +167,7 @@ export default function ReportSheet({
       setAiIsLive(json.ai_is_live);
       setWasRecurring(Boolean(json.recurring));
       setStage("done");
-      onReported(json.report);
+      onReported(json.report, json.ward);
     } catch (e) {
       setMessage((e as Error).message);
       setStage("error");
@@ -195,6 +197,16 @@ export default function ReportSheet({
         : !severity
           ? t("needs_severity")
           : null;
+
+  /*
+   * GPS starts the moment the sheet opens, so the location is usually ready by the time the
+   * photo is picked. A refusal or timeout lands in the editable fields below, as before.
+   * (Deferred a tick: locate() sets state, which must not happen synchronously in an effect.)
+   */
+  useEffect(() => {
+    const id = window.setTimeout(locate, 0);
+    return () => window.clearTimeout(id);
+  }, []);
 
   /* Desktop has no camera; don't promise one. */
   const [hasCamera, setHasCamera] = useState(true);
@@ -408,7 +420,7 @@ export default function ReportSheet({
 
               {coordsValid && coords && (
                 <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-xs text-white/75">
-                  {nearestWard(coords.lat, coords.lng)?.name ?? t("location_set")}
+                  {t("location_set")} · {coords.lat.toFixed(4)}, {coords.lng.toFixed(4)}
                 </div>
               )}
             </div>
@@ -496,6 +508,8 @@ export default function ReportSheet({
 
           {message && <Notice tone="red">{message}</Notice>}
 
+          {/* Sticky: on a phone the form is taller than the sheet; Submit stays in reach. */}
+          <div className="sticky bottom-0 -mx-1 bg-[#0b0f15] px-1 pb-1 pt-2">
           <button
             onClick={submit}
             disabled={!canSubmit}
@@ -503,6 +517,7 @@ export default function ReportSheet({
           >
             {stage === "uploading" ? t("analysing") : t("submit_report")}
           </button>
+          </div>
 
           {/*
             Say why the button is dead, and — when it isn't — say what submitting will

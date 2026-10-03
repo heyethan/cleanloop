@@ -35,20 +35,22 @@ function Official({ o }: { o: Perf["official"] }) {
 function Row({ p, max, indent = false }: { p: Perf; max: number; indent?: boolean }) {
   const w = p.medianDaysToVerified === null ? 0 : Math.max(4, (p.medianDaysToVerified / max) * 100);
   return (
-    <div className={`grid grid-cols-[1.3fr_1.6fr_0.7fr_1.4fr_0.7fr_0.8fr] items-center gap-3 border-t border-white/[0.06] py-3 text-sm ${indent ? "pl-4 text-white/75" : ""}`}>
-      <div className="font-medium">{p.name}</div>
-      <Official o={p.official} />
+    // Phones: a stacked card per row (labels shown inline). md and up: the table grid.
+    <div className={`grid grid-cols-2 items-center gap-x-3 gap-y-2 border-t border-white/[0.06] py-3 text-sm md:grid-cols-[1.3fr_1.6fr_0.7fr_1.4fr_0.7fr_0.8fr] md:gap-3 ${indent ? "pl-4 text-white/75" : ""}`}>
+      <div className="col-span-2 font-medium md:col-span-1">{p.name}</div>
+      <div className="col-span-2 min-w-0 md:col-span-1"><Official o={p.official} /></div>
       <div className={p.overdue ? "text-[#ff8a80]" : "text-white/60"} title={`${p.overdue} of ${p.open} open cases are past their deadline`}>
+        <span className="text-[11px] text-white/45 md:hidden">Overdue </span>
         {p.overdue}<span className="text-white/35"> / {p.open}</span>
       </div>
-      <div className="flex items-center gap-2" title={`Median ${d1(p.medianDaysToVerified)} from report to verified clean`}>
+      <div className="col-span-2 flex items-center gap-2 md:col-span-1" title={`Median ${d1(p.medianDaysToVerified)} from report to verified clean`}>
         <div className="h-2 flex-1 rounded-full bg-white/[0.06]">
           <div className="h-2 rounded-full bg-[#22c98a]" style={{ width: `${w}%` }} />
         </div>
         <span className="w-10 text-right tabular-nums text-white/80">{d1(p.medianDaysToVerified)}</span>
       </div>
-      <div className="tabular-nums text-white/70">{pct(p.reopenRate)}</div>
-      <div className="tabular-nums text-white/70">{pct(p.confirmationRate)}</div>
+      <div className="tabular-nums text-white/70"><span className="text-[11px] text-white/45 md:hidden">Reopened </span>{pct(p.reopenRate)}</div>
+      <div className="tabular-nums text-white/70"><span className="text-[11px] text-white/45 md:hidden">Confirmed </span>{pct(p.confirmationRate)}</div>
     </div>
   );
 }
@@ -91,9 +93,9 @@ export default async function PerformancePage() {
         ))}
       </div>
 
-      <div className="mt-8 overflow-x-auto">
-        <div className="min-w-[760px]">
-          <div className="grid grid-cols-[1.3fr_1.6fr_0.7fr_1.4fr_0.7fr_0.8fr] gap-3 pb-2 text-[11px] uppercase tracking-[0.12em] text-white/45">
+      <div className="mt-8">
+        <div>
+          <div className="hidden grid-cols-[1.3fr_1.6fr_0.7fr_1.4fr_0.7fr_0.8fr] gap-3 md:grid pb-2 text-[11px] uppercase tracking-[0.12em] text-white/45">
             <div>Corporation / zone</div>
             <div>Responsible</div>
             <div>Overdue</div>

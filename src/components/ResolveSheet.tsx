@@ -8,6 +8,8 @@
  * POSTs multipart/form-data to /api/reports/[id]/resolve.
  * Data schemas: sends photo (File), session_id; receives {verification, status,
  * is_self_resolved, ai_is_live} plus the Resolution row (ISO-8601 timestamps).
+ * Opens from a slim Pin and loads the full case from GET /api/reports/[id]: the real GBA
+ * ward / zone / corporation, the responsible official and the SLA deadline (the case card).
  * User instruction, verbatim: "also improve the ui/ux of the website"
  *
  * UX applied:
@@ -22,9 +24,18 @@ import { useEffect, useState } from "react";
 import { getSessionId } from "@/lib/session";
 import Sheet from "@/components/Sheet";
 import { translate, type Lang } from "@/lib/i18n";
-import type { Report, ReportStatus, Verification } from "@/lib/types";
+import type { Pin, Report, ReportStatus, Verification } from "@/lib/types";
 import { ThinkingOrb } from "thinking-orbs";
 import { downscalePhoto, readJson } from "@/lib/photo";
+import Face from "@/components/Face";
+
+/** GET /api/reports/[id]. */
+interface CaseDetail {
+  report: Report;
+  ward: { id: string; name: string; name_kn: string; zone: string; corporation: string } | null;
+  official: { name: string | null; role: string; photo_url: string | null; source_url: string | null } | null;
+  sla: { resolveDue: string; resolveOverdue: boolean } | null;
+}
 
 const WORK_STEPS = [
   "Uploading your photo",
@@ -39,7 +50,7 @@ export default function ResolveSheet({
   onResolved,
 }: {
   lang: Lang;
-  report: Report;
+  report: Pin;
   onClose: () => void;
   onResolved: (id: string, status: ReportStatus) => void;
 }) {
@@ -53,6 +64,20 @@ export default function ResolveSheet({
   const [status, setStatus] = useState<ReportStatus | null>(null);
   const [selfResolved, setSelfResolved] = useState(false);
   const [aiIsLive, setAiIsLive] = useState(true);
+  const [detail, setDetail] = useState<CaseDetail | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/reports/${report.id}`)
+      .then((r) => r.json())
+      .then((j) => alive && !j.error && setDetail(j))
+      .catch(() => {
+        /* the card degrades to what the pin already knows */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [report.id]);
 
   useEffect(() => {
     if (!busy) return;
@@ -128,11 +153,20 @@ export default function ResolveSheet({
           <img
             src={report.photo_before_url}
             alt="Before"
-            className="h-40 w-full object-cover"
+            width={448}
+            height={160}
+            decoding="async"
+            referrerPolicy="no-referrer"
+            className="h-40 w-full bg-white/5 object-cover"
           />
           <div className="flex items-center justify-between bg-white/[0.04] px-3.5 py-2.5">
-            <span className="text-xs capitalize text-white/80">
-              {report.waste_type} · severity {report.severity}/5
+            <span className="flex items-center gap-2 text-xs capitalize text-white/80">
+              {report.category === "road" ? (report.road_issue ?? "road").replace("_", " ") : report.waste_type} · severity {report.severity}/5
+              {(detail?.sla?.resolveOverdue ?? report.overdue) && (
+                <span className="rounded-full bg-[#ff3b30]/20 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-[#ffb0a5]">
+                  {t("overdue")}
+                </span>
+              )}
             </span>
             <span className="text-[10px] uppercase tracking-[0.2em] text-white/55">
               {t("before")}
@@ -140,9 +174,35 @@ export default function ResolveSheet({
           </div>
         </div>
 
-        {report.ai_description && (
+        {/* --- where it is and who answers for it --- */}
+        {detail?.ward && (
+          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3.5 text-xs text-white/75">
+            <div className="text-white/90">
+              {lang === "kn" && detail.ward.name_kn ? detail.ward.name_kn : detail.ward.name}
+              <span className="text-white/50"> · {detail.ward.zone} {t("zone_label")} · {detail.ward.corporation}</span>
+            </div>
+            {detail.official && (
+              <div className="mt-3 flex items-center gap-2.5">
+                <Face name={detail.official.name ?? ""} photo={detail.official.photo_url} size={36} />
+                <div className="min-w-0">
+                  <div className="text-[10px] uppercase tracking-[0.18em] text-white/50">{t("responsible")}</div>
+                  <div className="truncate text-white/90">{detail.official.name}</div>
+                  <div className="truncate text-[11px] text-white/55">{detail.official.role}</div>
+                </div>
+              </div>
+            )}
+            {detail.sla && (
+              <div className={`mt-3 text-[11px] ${detail.sla.resolveOverdue ? "text-[#ff8a80]" : "text-white/55"}`}>
+                {detail.sla.resolveOverdue ? t("past_deadline") : t("deadline")}:{" "}
+                {new Date(detail.sla.resolveDue).toLocaleDateString(lang === "kn" ? "kn-IN" : "en-IN", { dateStyle: "medium" })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {detail?.report.ai_description && (
           <p className="text-[11px] leading-relaxed text-white/60">
-            {report.ai_description}
+            {detail.report.ai_description}
           </p>
         )}
 
@@ -231,7 +291,7 @@ export default function ResolveSheet({
             cleanliness is precisely the unaccountable "we fixed it" the product exists
             to replace.
           */
-          <ExistingProof reportId={report.id} lang={lang} isSeed={report.is_seed} />
+          <ExistingProof reportId={report.id} lang={lang} isSeed={detail?.report.is_seed ?? false} />
         ) : (
           <>
             <label className="block cursor-pointer">
