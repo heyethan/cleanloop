@@ -97,11 +97,6 @@ export default async function CasePage({
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={r.photo_before_url} alt="Reported photo" className="mt-4 h-56 w-full rounded-2xl object-cover" />
       {r.description && <p className="mt-3 text-sm text-white/75">&ldquo;{r.description}&rdquo;</p>}
-      {r.source_attribution && (
-        <p className="mt-2 text-xs text-white/50">
-          Source: {r.source_url ? <a className="underline" href={r.source_url}>{r.source_attribution}</a> : r.source_attribution}
-        </p>
-      )}
 
       {q.resolve && r.status !== "verified_resolved" && (
         <Link href={`/?case=${r.id}`} className="mt-4 block rounded-full bg-white py-3 text-center text-sm font-semibold text-black">
