@@ -52,7 +52,17 @@ export default function DictateButton({ lang, onText }: { lang: "en" | "kn"; onT
       const text = Array.from(e.results).map((res) => res[0].transcript).join(" ").trim();
       if (text) onText(text);
     };
-    r.onerror = (e) => setStatus(e.error === "not-allowed" ? "Microphone permission was denied." : "Didn't catch that. Try again.");
+    r.onerror = (e) =>
+      setStatus(
+        {
+          "not-allowed": "Microphone permission was denied.",
+          "service-not-allowed": "This browser blocks voice typing. Try Chrome or Safari.",
+          network: "Voice typing needs Chrome or Safari online. This browser can't reach the speech service.",
+          "audio-capture": "No microphone found.",
+          "no-speech": "Didn't hear anything. Tap Speak and talk right away.",
+          "language-not-supported": "This browser can't transcribe this language.",
+        }[e.error] ?? `Didn't catch that (${e.error}). Try again.`,
+      );
     r.onend = () => setListening(false);
     rec.current = r;
     setStatus("");
