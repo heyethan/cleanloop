@@ -23,3 +23,18 @@ export function getSessionId(): string {
   }
   return id;
 }
+
+/**
+ * sessionStorage key for an in-progress report (ReportSheet writes it; page.tsx reopens the
+ * sheet when it finds one after a phone reloaded the page mid-camera). Lives here, not in
+ * ReportSheet, so page.tsx can read it without pulling the lazy sheet into the main bundle.
+ */
+export const REPORT_DRAFT_KEY = "cleanloop_report_draft";
+
+export function hasReportDraft(): boolean {
+  try {
+    return sessionStorage.getItem(REPORT_DRAFT_KEY) !== null;
+  } catch {
+    return false;
+  }
+}

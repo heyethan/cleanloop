@@ -18,9 +18,9 @@
  *    ("you'll see this turn green") rather than just closing.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import DictateButton from "./DictateButton";
-import { getSessionId } from "@/lib/session";
+import { getSessionId, REPORT_DRAFT_KEY } from "@/lib/session";
 import Sheet from "@/components/Sheet";
 import { translate, type Lang } from "@/lib/i18n";
 import { isInBengaluru } from "@/lib/wards";
@@ -41,6 +41,41 @@ const WORK_STEPS = [
   "Writing the complaint",
 ];
 
+/*
+ * Draft survival. Phones (iOS Safari, Android Chrome) may unload a memory-heavy page while the
+ * camera app is open and reload it on return — documented, not hypothetical — which dropped the
+ * reporter back on the bare map with everything gone. The draft lives in sessionStorage (this
+ * tab only) from the moment the sheet opens: page.tsx reopens the sheet if one exists, and the
+ * fields come back. The photo is kept as a downscaled data URL once it reaches the page; if the
+ * reload happened before it did, the reporter is told to pick it from the gallery instead, which
+ * does not open the camera and so does not risk another reload.
+ */
+const DRAFT_KEY = REPORT_DRAFT_KEY;
+type Draft = {
+  category: "waste" | "road";
+  roadIssue: string;
+  latText: string;
+  lngText: string;
+  severity: number | null;
+  description: string;
+  photo: string | null;
+};
+function readDraft(): Draft | null {
+  try {
+    const raw = sessionStorage.getItem(DRAFT_KEY);
+    return raw ? (JSON.parse(raw) as Draft) : null;
+  } catch {
+    return null;
+  }
+}
+function clearDraft() {
+  try {
+    sessionStorage.removeItem(DRAFT_KEY);
+  } catch {
+    /* storage blocked: nothing was saved either */
+  }
+}
+
 export default function ReportSheet({
   lang,
   onClose,
@@ -52,6 +87,8 @@ export default function ReportSheet({
   onReported: (r: Report, ward: { name: string; zone: string } | null) => void;
 }) {
   const t = (k: string, v?: Record<string, string | number>) => translate(lang, k, v);
+  // Read once, on first render: the draft a reload left behind, if any.
+  const [draft] = useState<Draft | null>(() => (typeof window === "undefined" ? null : readDraft()));
   const [stage, setStage] = useState<Stage>("idle");
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -60,8 +97,8 @@ export default function ReportSheet({
    * typing can never rewrite or clear what you are in the middle of typing. Holding a
    * parsed number in state was what made the inputs vanish after the first field.
    */
-  const [latText, setLatText] = useState("");
-  const [lngText, setLngText] = useState("");
+  const [latText, setLatText] = useState(draft?.latText ?? "");
+  const [lngText, setLngText] = useState(draft?.lngText ?? "");
   const coords = useMemo(() => {
     if (latText.trim() === "" || lngText.trim() === "") return null;
     const lat = Number(latText);
@@ -76,13 +113,78 @@ export default function ReportSheet({
   const [aiIsLive, setAiIsLive] = useState(true);
   const [wasRecurring, setWasRecurring] = useState(false);
   // The image model names the waste but cannot judge how bad it is, so the reporter does.
-  const [severity, setSeverity] = useState<number | null>(null);
+  const [severity, setSeverity] = useState<number | null>(draft?.severity ?? null);
   /** Optional note, typed or dictated. Text only: no audio is ever kept. */
-  const [description, setDescription] = useState("");
+  const [description, setDescription] = useState(draft?.description ?? "");
   /** Garbage dump (default) or road damage; roads also need which kind of damage. */
-  const [category, setCategory] = useState<"waste" | "road">("waste");
-  const [roadIssue, setRoadIssue] = useState<string>("");
+  const [category, setCategory] = useState<"waste" | "road">(draft?.category ?? "waste");
+  const [roadIssue, setRoadIssue] = useState<string>(draft?.roadIssue ?? "");
+  // The saved photo as a small data URL, so a reload can hand it back.
+  const photoData = useRef<string | null>(draft?.photo ?? null);
+
+  // Restore the saved photo (async, so no synchronous setState in the effect).
+  useEffect(() => {
+    if (!draft?.photo) return;
+    let live = true;
+    fetch(draft.photo)
+      .then((r) => r.blob())
+      .then((b) => live && setFile(new File([b], "photo.jpg", { type: b.type || "image/jpeg" })))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [draft]);
+
+  // Keep the photo's data URL current: downscaled first so it fits in sessionStorage.
+  useEffect(() => {
+    if (!file) return;
+    let live = true;
+    downscalePhoto(file)
+      .then(
+        (small) =>
+          new Promise<string>((ok, bad) => {
+            const fr = new FileReader();
+            fr.onload = () => ok(String(fr.result));
+            fr.onerror = bad;
+            fr.readAsDataURL(small);
+          }),
+      )
+      .then((url) => {
+        if (!live) return;
+        photoData.current = url;
+        saveDraft();
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file]);
   const [step, setStep] = useState(0);
+
+  function saveDraft() {
+    const d: Draft = { category, roadIssue, latText, lngText, severity, description, photo: photoData.current };
+    try {
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify(d));
+    } catch {
+      // Over quota (a big photo): keep the fields, drop the photo rather than lose everything.
+      try {
+        sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ ...d, photo: null }));
+      } catch {
+        /* storage blocked entirely */
+      }
+    }
+  }
+  // Written from the moment the sheet opens, so even a reload mid-camera reopens it.
+  useEffect(() => {
+    if (stage === "done") return;
+    saveDraft();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [category, roadIssue, latText, lngText, severity, description, stage]);
+  const close = () => {
+    clearDraft();
+    onClose();
+  };
 
   // Advance the visible work steps while the request is genuinely in flight.
   useEffect(() => {
@@ -167,6 +269,7 @@ export default function ReportSheet({
       setAiIsLive(json.ai_is_live);
       setWasRecurring(Boolean(json.recurring));
       setStage("done");
+      clearDraft();
       onReported(json.report, json.ward);
     } catch (e) {
       setMessage((e as Error).message);
@@ -204,6 +307,8 @@ export default function ReportSheet({
    * (Deferred a tick: locate() sets state, which must not happen synchronously in an effect.)
    */
   useEffect(() => {
+    // A restored draft already has its location; re-asking would overwrite the restore notice.
+    if (draft?.latText) return;
     const id = window.setTimeout(locate, 0);
     return () => window.clearTimeout(id);
   }, []);
@@ -218,7 +323,7 @@ export default function ReportSheet({
     <Sheet
       eyebrow={stage === "done" ? t("reported") : t("new_report")}
       title={stage === "done" ? t("on_the_map") : t("report_cta")}
-      onClose={onClose}
+      onClose={close}
     >
       {stage === "done" && result ? (
         <div className="space-y-4">
@@ -298,7 +403,7 @@ export default function ReportSheet({
           )}
 
           <button
-            onClick={onClose}
+            onClick={close}
             className="w-full rounded-full bg-white py-3.5 text-[15px] font-semibold text-black transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.975]"
           >
             {t("done")}
@@ -306,6 +411,9 @@ export default function ReportSheet({
         </div>
       ) : (
         <div className="space-y-5">
+          {draft && (
+            <Notice tone="amber">{draft.photo ? t("draft_restored") : t("draft_restored_no_photo")}</Notice>
+          )}
           {/* --- what is it: garbage or road damage --- */}
           <div className="flex gap-1 rounded-full border border-white/10 bg-white/[0.04] p-1" role="radiogroup" aria-label="Report type">
             {(["waste", "road"] as const).map((c) => (

@@ -40,6 +40,7 @@ import { areaPicks } from "@/lib/areaPicks";
 import type { MapHandle, MapMode } from "@/components/Map3D";
 import type { AreaPick, Areas, Pin, ReportStatus } from "@/lib/types";
 import type { IslandOfficial } from "@/lib/areas";
+import { hasReportDraft } from "@/lib/session";
 
 /*
  * Everything that is not on screen at first paint loads on demand. Map3D was already lazy;
@@ -88,6 +89,12 @@ export default function Home() {
   const { lang, setLang, t } = useLang();
   const [stats, setStats] = useState<Stats | null>(null);
   const [reporting, setReporting] = useState(false);
+  // A phone that reloaded the page mid-camera left a report draft behind: reopen the sheet.
+  useEffect(() => {
+    if (!hasReportDraft()) return;
+    const id = window.setTimeout(() => setReporting(true), 0);
+    return () => window.clearTimeout(id);
+  }, []);
   const [selected, setSelected] = useState<Pin | null>(null);
   const [showBoard, setShowBoard] = useState(false);
   const [showFilters, setShowFilters] = useState(false);

@@ -113,6 +113,8 @@ export const STRINGS: Record<Lang, Dict> = {
     camera_opens: "Camera opens directly",
     choose_file: "JPG or PNG from this device",
     needs_photo: "Add a photo to continue",
+    draft_restored: "Your phone reloaded the page. We kept your report — check it and submit.",
+    draft_restored_no_photo: "Your phone reloaded the page while the camera was open. Everything else is kept — choose the photo from your gallery.",
     needs_location: "Add a location to continue",
     location_outside: "That location is outside Bengaluru",
     after_submit:
@@ -291,6 +293,8 @@ export const STRINGS: Record<Lang, Dict> = {
     camera_opens: "ಕ್ಯಾಮೆರಾ ನೇರವಾಗಿ ತೆರೆಯುತ್ತದೆ",
     choose_file: "ಈ ಸಾಧನದಿಂದ JPG ಅಥವಾ PNG",
     needs_photo: "ಮುಂದುವರಿಯಲು ಫೋಟೋ ಸೇರಿಸಿ",
+    draft_restored: "ನಿಮ್ಮ ಫೋನ್ ಪುಟವನ್ನು ಮರುಲೋಡ್ ಮಾಡಿತು. ನಿಮ್ಮ ವರದಿಯನ್ನು ಉಳಿಸಿದ್ದೇವೆ — ಪರಿಶೀಲಿಸಿ ಮತ್ತು ಸಲ್ಲಿಸಿ.",
+    draft_restored_no_photo: "ಕ್ಯಾಮೆರಾ ತೆರೆದಿದ್ದಾಗ ನಿಮ್ಮ ಫೋನ್ ಪುಟವನ್ನು ಮರುಲೋಡ್ ಮಾಡಿತು. ಉಳಿದೆಲ್ಲವನ್ನೂ ಉಳಿಸಿದ್ದೇವೆ — ಗ್ಯಾಲರಿಯಿಂದ ಫೋಟೋ ಆಯ್ಕೆಮಾಡಿ.",
     needs_location: "ಮುಂದುವರಿಯಲು ಸ್ಥಳ ಸೇರಿಸಿ",
     location_outside: "ಆ ಸ್ಥಳ ಬೆಂಗಳೂರಿನ ಹೊರಗಿದೆ",
     after_submit:
