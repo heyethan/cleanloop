@@ -26,6 +26,7 @@ import { mapNammaKasa } from "./nammakasa-map.ts";
 import { snapToRoad, roadQuality, ROADS } from "../src/lib/roads.ts";
 import { roadIntake, roadVerdict } from "../src/lib/roadVerdict.ts";
 import { wasteIntake, cleanScore } from "../src/lib/wasteVerdict.ts";
+import { declaresAiMade } from "../src/lib/photo.ts";
 import {
   statusFromVerification,
   stubProvider,
@@ -437,4 +438,10 @@ check("officialsSummary: one face per area, sorted by overdue, unnamed zones ski
   assert.deepEqual(list.find((x) => x.level === "corporation")?.zones, ["Bommanahalli", "Jayanagar"]);
 });
 
+check("declaresAiMade: C2PA/XMP AI source types caught, plain photo passes", () => {
+  const enc = (x: string) => new TextEncoder().encode(x);
+  assert.equal(declaresAiMade(enc("digitalsourcetype/trainedAlgorithmicMedia")), true);
+  assert.equal(declaresAiMade(enc("compositeWithTrainedAlgorithmicMedia")), true);
+  assert.equal(declaresAiMade(enc("Exif plain camera jpeg")), false);
+});
 console.log(`\n${passed} checks passed`);

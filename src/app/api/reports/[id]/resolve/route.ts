@@ -22,6 +22,7 @@ import { haversineMetres } from "@/lib/wards";
 import { transition } from "@/lib/events";
 import { predict, sceneMatch } from "@/lib/providers/tm";
 import { roadVerdict } from "@/lib/roadVerdict";
+import { declaresAiMade } from "@/lib/photo";
 
 /** How close the resolver's GPS fix must be to the reported spot for a green verdict. */
 const RESOLVE_RADIUS_METRES = 50;
@@ -123,6 +124,12 @@ export async function POST(
     }
 
     const afterBytes = new Uint8Array(await photo.arrayBuffer());
+    if (declaresAiMade(afterBytes)) {
+      return NextResponse.json(
+        { error: "This photo is labelled as AI-generated. Take a real photo of the spot." },
+        { status: 422 },
+      );
+    }
     const afterUrl = await uploadPhoto(db, afterBytes, photo.type, "after");
 
     // Re-fetch the stored before-photo so verification compares what was actually reported,

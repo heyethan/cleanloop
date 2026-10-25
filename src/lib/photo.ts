@@ -136,3 +136,14 @@ export async function readJson<T = unknown>(res: Response): Promise<T> {
   }
   return parsed as T;
 }
+
+/**
+ * True when the file declares itself AI-made: Gemini, ChatGPT, Adobe and Meta write an IPTC
+ * digitalSourceType of trainedAlgorithmicMedia (or a composite of it) into the C2PA manifest or
+ * XMP. Checked 2026-10-16 on a Gemini PNG: "Created by Google Generative AI" + SynthID in a caBX chunk.
+ * ponytail: plain byte search; a stripped label, a screenshot or a brotli-compressed manifest gets past.
+ * The in-app camera is the real gate; this catches a file posted straight to the API.
+ */
+export function declaresAiMade(bytes: Uint8Array): boolean {
+  return new TextDecoder("latin1").decode(bytes).toLowerCase().includes("algorithmicmedia");
+}

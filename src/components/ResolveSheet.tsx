@@ -28,6 +28,7 @@ import type { Pin, Report, ReportStatus, Verification } from "@/lib/types";
 import { ThinkingOrb } from "thinking-orbs";
 import { downscalePhoto, readJson } from "@/lib/photo";
 import Face from "@/components/Face";
+import LiveCamera from "@/components/LiveCamera";
 
 /** GET /api/reports/[id]. */
 interface CaseDetail {
@@ -294,29 +295,23 @@ export default function ResolveSheet({
           <ExistingProof reportId={report.id} lang={lang} isSeed={detail?.report.is_seed ?? false} />
         ) : (
           <>
-            <label className="block cursor-pointer">
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                className="sr-only"
-              />
-              {preview ? (
-                <div className="relative overflow-hidden rounded-2xl border border-white/10">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={preview} alt="After" className="h-40 w-full object-cover" />
-                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-3 py-2 text-[11px] text-white/80">
-                    After · tap to change
-                  </div>
+            {/* Live camera only: no file picker, so a saved or AI-made image can't be submitted. */}
+            {preview ? (
+              <button
+                type="button"
+                onClick={() => setFile(null)}
+                disabled={busy}
+                className="relative block w-full overflow-hidden rounded-2xl border border-white/10"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={preview} alt="After" className="h-40 w-full object-cover" />
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-3 py-2 text-left text-[11px] text-white/80">
+                  After · tap to retake
                 </div>
-              ) : (
-                <div className="flex h-28 flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-white/15 bg-white/[0.03]">
-                  <span className="text-lg">📷</span>
-                  <span className="text-sm text-white/70">{t("after_photo")}</span>
-                </div>
-              )}
-            </label>
+              </button>
+            ) : (
+              <LiveCamera label={t("after_photo")} onCapture={setFile} />
+            )}
 
             {busy && (
               <div className="space-y-2 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
