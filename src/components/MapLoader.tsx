@@ -22,6 +22,7 @@
  * the product's visual language before they meet the map.
  */
 
+import Wordmark from "./Wordmark";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { ThinkingOrb } from "thinking-orbs";
@@ -59,9 +60,7 @@ export default function MapLoader({ ready, lang }: { ready: boolean; lang: Lang 
         >
           <ThinkingOrb state="working" size={64} theme="dark" aria-label={t("loading")} />
 
-          <div className="mt-6 text-[13px] font-medium tracking-tight text-white/80">
-            {t("app_name")}
-          </div>
+          <Wordmark className="mt-6 text-[22px] text-white/90" />
           <div className="mt-1.5 text-[11px] uppercase tracking-[0.25em] text-white/45">
             {t("loading_city")}
           </div>

@@ -10,7 +10,7 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { serverClient } from "@/lib/supabase";
 
-export const metadata = { title: "CleanLoop Lite" };
+export const metadata = { title: "Lite" };
 
 const STATUS: Record<string, string> = {
   open: "Open",

@@ -36,7 +36,7 @@ import type { Report, Resolution } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Evidence pack — CleanLoop",
+  title: "Evidence pack",
   description:
     "Independently verified cleanup outcomes for a sponsored zone, including the claims we refused to certify.",
 };
