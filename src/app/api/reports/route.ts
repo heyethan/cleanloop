@@ -27,7 +27,7 @@ import { isOverdue, type CaseRow, type SlaCfg } from "@/lib/areas";
 import { getProvider } from "@/lib/ai";
 import { isInBengaluru } from "@/lib/wards";
 import { wardAt, wardMeta } from "@/lib/gbaWards";
-import { pickOfficial, type Official } from "@/lib/officials";
+import { officialChain, type Official } from "@/lib/officials";
 import { notifyNewCase } from "@/lib/notify";
 import { transition } from "@/lib/events";
 import { predict } from "@/lib/providers/tm";
@@ -282,9 +282,21 @@ async function createReport(req: Request) {
 
     // Tell the responsible official. A mail failure must never lose the citizen's report.
     let official: Official | null = null;
+    let chain: Official[] = [];
+    let openUnder: number | null = null;
     if (gba) {
       const { data: officials } = await db.from("officials").select("*").order("id");
-      official = pickOfficial((officials ?? []) as Official[], gba, category);
+      chain = officialChain((officials ?? []) as Official[], gba, category);
+      official = chain[0] ?? null;
+      // "These are the dumps under this person": live cases in the area they answer for.
+      if (official) {
+        let q = db.from("reports").select("id", { count: "exact", head: true })
+          .eq("source", "cleanloop").in("status", ["open", "claimed"]);
+        if (official.level === "ward") q = q.eq("gba_ward_id", gba.id);
+        else if (official.level === "zone") q = q.eq("zone", gba.zone_name);
+        else if (official.level === "corporation") q = q.eq("corporation", gba.corporation);
+        openUnder = (await q).count ?? null;
+      }
       if (!isTest) {
         try {
           const outcome = await notifyNewCase(
@@ -333,6 +345,9 @@ async function createReport(req: Request) {
       tracking_code: trackingCode,
       ward: gba && { id: gba.id, name: gba.name, ward_no: gba.ward_no, zone: gba.zone_name, corporation: gba.corporation },
       official: official && { name: official.name, role: official.role, photo_url: official.photo_url, source_url: official.source_url },
+      // Who it escalates to if it isn't cleared, most specific first (official is chain[0]).
+      escalates_to: chain.slice(1).map((o) => ({ name: o.name, role: o.role })),
+      open_under: openUnder,
       refill,
       ai_is_live: ai.isLive,
       recurring: prior

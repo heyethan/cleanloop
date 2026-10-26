@@ -1,7 +1,7 @@
 /**
  * Who is responsible for a case: the most specific named official, escalating upward.
  *
- * Affected API: exports Official, OFFICIALS_FALLBACK_EMAIL, pickOfficial(). Used by the report
+ * Affected API: exports Official, OFFICIALS_FALLBACK_EMAIL, officialChain(), pickOfficial(). Used by the report
  * route (email recipient + case card) and the performance page; checked in scripts/selfcheck.ts.
  * Data: the `officials` table (schema-v3.sql), seeded by scripts/seed-officials.ts from
  * official sources only, each row carrying source_url and verified_at.
@@ -29,21 +29,31 @@ export const OFFICIALS_FALLBACK_EMAIL = "comm@bbmp.gov.in";
 
 const LEVELS: Official["level"][] = ["ward", "zone", "corporation", "city"];
 
-export function pickOfficial(
+/** One named official per level, most specific first: who has it, then who it escalates to. */
+export function officialChain(
   officials: Official[],
   ward: { id: string; zone_name: string; corporation: string },
   category: "waste" | "road",
-): Official | null {
+): Official[] {
   const matchesArea = (o: Official) =>
     o.level === "ward" ? o.ward_id === ward.id
     : o.level === "zone" ? o.zone === ward.zone_name
     : o.level === "corporation" ? o.corporation === ward.corporation
     : true;
+  const chain: Official[] = [];
   for (const level of LEVELS) {
     const hit = officials.find(
       (o) => o.level === level && o.name && (o.category === category || o.category === "all") && matchesArea(o),
     );
-    if (hit) return hit;
+    if (hit) chain.push(hit);
   }
-  return null;
+  return chain;
+}
+
+export function pickOfficial(
+  officials: Official[],
+  ward: { id: string; zone_name: string; corporation: string },
+  category: "waste" | "road",
+): Official | null {
+  return officialChain(officials, ward, category)[0] ?? null;
 }

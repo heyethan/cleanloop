@@ -20,6 +20,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import DictateButton from "./DictateButton";
+import Face from "@/components/Face";
 import { getSessionId, REPORT_DRAFT_KEY } from "@/lib/session";
 import Sheet from "@/components/Sheet";
 import { translate, type Lang } from "@/lib/i18n";
@@ -112,6 +113,12 @@ export default function ReportSheet({
   const [result, setResult] = useState<Report | null>(null);
   const [aiIsLive, setAiIsLive] = useState(true);
   const [wasRecurring, setWasRecurring] = useState(false);
+  /** Who the dump went to, how many live cases they already have, and who it escalates to. */
+  const [routed, setRouted] = useState<{
+    official: { name: string | null; role: string; photo_url: string | null } | null;
+    escalates_to: { name: string | null; role: string }[];
+    open_under: number | null;
+  } | null>(null);
   // The image model names the waste but cannot judge how bad it is, so the reporter does.
   const [severity, setSeverity] = useState<number | null>(draft?.severity ?? null);
   /** Optional note, typed or dictated. Text only: no audio is ever kept. */
@@ -254,6 +261,9 @@ export default function ReportSheet({
         tracking_code?: string;
         recurring: unknown;
         ward: { name: string; zone: string } | null;
+        official: { name: string | null; role: string; photo_url: string | null } | null;
+        escalates_to?: { name: string | null; role: string }[];
+        open_under?: number | null;
       }>(res);
 
       setResult(json.report);
@@ -268,6 +278,7 @@ export default function ReportSheet({
       }
       setAiIsLive(json.ai_is_live);
       setWasRecurring(Boolean(json.recurring));
+      setRouted({ official: json.official, escalates_to: json.escalates_to ?? [], open_under: json.open_under ?? null });
       setStage("done");
       clearDraft();
       onReported(json.report, json.ward);
@@ -327,6 +338,31 @@ export default function ReportSheet({
     >
       {stage === "done" && result ? (
         <div className="space-y-4">
+          {routed?.official && (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3.5">
+              <div className="text-[11px] uppercase tracking-[0.2em] text-white/55">Reported to</div>
+              <div className="mt-2 flex items-center gap-3">
+                <Face name={routed.official.name ?? routed.official.role} photo={routed.official.photo_url} size={44} />
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold">{routed.official.name}</div>
+                  <div className="text-xs text-white/65">{routed.official.role}</div>
+                </div>
+              </div>
+              {routed.open_under != null && (
+                <p className="mt-2.5 text-xs text-white/75">
+                  {routed.open_under === 1
+                    ? "Yours is the only open dump with them right now."
+                    : `${routed.open_under} open dumps are with them right now, including yours.`}
+                </p>
+              )}
+              {routed.escalates_to.length > 0 && (
+                <p className="mt-1 text-[11px] text-white/55">
+                  Above them: {routed.escalates_to.slice(0, 2).map((o) => `${o.name ?? o.role} (${o.role.split(/,| - /)[0]})`).join(", then ")}.
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="rounded-2xl border border-[#22c98a]/25 bg-[#22c98a]/10 p-4">
             <div className="text-sm font-medium text-[#7df0c0]">
               You&apos;ll see this turn green when it&apos;s verified clean.

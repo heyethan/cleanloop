@@ -78,12 +78,18 @@ export default function OfficialsIsland({
   };
   const [tapped, setTapped] = useState<IslandOfficial | null>(null);
   const [all, setAll] = useState(false);
+  // Collapsed by default: a citizen wants to know where *their* dump went (the report screen
+  // says), not every commissioner's face. One tap opens the full stack.
+  const [open, setOpen] = useState(false);
   const says = (o: IslandOfficial) =>
     t("official_says", { name: o.name, role: o.role, area: o.area, n: o.overdue });
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setTapped(null);
+      if (e.key === "Escape") {
+        setTapped(null);
+        setOpen(false);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -94,6 +100,35 @@ export default function OfficialsIsland({
   const shown = all || heads.length === 0 ? officials : heads;
   const more = officials.length - heads.length;
   const toggleLabel = all ? t("officials_fewer") : t("officials_more", { n: more });
+
+  if (!open) {
+    // Areas nest (city > corporation > zone), so the widest one is the true total, not the sum.
+    const overdue = Math.max(0, ...officials.map((o) => o.overdue));
+    return (
+      <div className={`pointer-events-auto ${wide ? "absolute right-3 top-3 z-20" : "relative"}`}>
+        <button
+          onClick={() => setOpen(true)}
+          aria-expanded={false}
+          className="flex h-11 items-center gap-2 rounded-full border border-white/12 bg-black/60 pl-1.5 pr-3.5 text-[12.5px] text-white/80 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.95)] backdrop-blur-2xl"
+        >
+          <span aria-hidden className="flex -space-x-2.5">
+            {officials.slice(0, 3).map((o) => (
+              <span key={`${o.level}:${o.area}`} className="rounded-full ring-2 ring-black/80">
+                <Face name={o.name} photo={o.photo_url} size={28} />
+              </span>
+            ))}
+          </span>
+          {t("officials")}
+          {overdue > 0 && (
+            <span className="rounded-full bg-[#ff3b30] px-1.5 text-[10px] font-semibold leading-[18px] text-white tabular-nums">
+              {overdue}
+              <span className="sr-only"> overdue</span>
+            </span>
+          )}
+        </button>
+      </div>
+    );
+  }
 
   const badge = (o: IslandOfficial) =>
     o.overdue > 0 && (
@@ -142,6 +177,13 @@ export default function OfficialsIsland({
                 <Chevron open={all} />
               </motion.button>
             )}
+            <button
+              onClick={() => { setOpen(false); setAll(false); }}
+              aria-label="Hide officials"
+              className="mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded-full text-[13px] text-white/50"
+            >
+              ✕
+            </button>
           </Shell>
         </MotionConfig>
         {hover && (
@@ -223,6 +265,13 @@ export default function OfficialsIsland({
                 <Chevron open={all} horizontal />
               </motion.button>
             )}
+            <button
+              onClick={() => { setOpen(false); setAll(false); setTapped(null); }}
+              aria-label="Hide officials"
+              className="mr-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[13px] text-white/50"
+            >
+              ✕
+            </button>
           </div>
         </Shell>
       </MotionConfig>

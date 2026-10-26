@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import { haversineMetres } from "../src/lib/wards.ts";
 import { countAreas, isOverdue, officialsSummary, type CaseRow } from "../src/lib/areas.ts";
 import { wardAt, wardMeta } from "../src/lib/gbaWards.ts";
-import { pickOfficial, type Official } from "../src/lib/officials.ts";
+import { officialChain, pickOfficial, type Official } from "../src/lib/officials.ts";
 import { signAction, verifyAction } from "../src/lib/actionToken.ts";
 import { isReporter, hashCode } from "../src/lib/reporter.ts";
 import { slaState, median } from "../src/lib/sla.ts";
@@ -214,6 +214,11 @@ check("pickOfficial: category must match (or be 'all'); other wards/zones never 
 check("pickOfficial: an unnamed post is skipped in favour of a named one above it", () => {
   const unnamed = o({ level: "zone", zone: "Bommanahalli", name: null });
   assert.equal(pickOfficial([unnamed, corp], ward, "waste")?.name, "S");
+});
+check("officialChain: one per level, most specific first; a marshal is a ward-level row", () => {
+  const marshal = o({ level: "ward", ward_id: "south-28", category: "waste", role: "Marshal (BSWML)", name: "M" });
+  assert.deepEqual(officialChain([city, corp, zone, marshal], ward, "waste").map((x) => x.name), ["M", "Z", "S", "C"]);
+  assert.deepEqual(officialChain([city, zone], ward, "waste").map((x) => x.name), ["Z", "C"]);
 });
 
 console.log("action links:");
